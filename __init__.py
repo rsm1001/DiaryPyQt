@@ -1,0 +1,1 @@
+# Diary Server PyQt Version
