@@ -61,7 +61,3 @@ DiaryPyQt/
 - `Ctrl+F`: 搜索
 - `Ctrl+Q`: 退出
 - `F5`: 刷新
-
-## 许可证
-
-MIT License
