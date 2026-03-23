@@ -470,7 +470,7 @@ class EnhancedDatabaseManager:
         for item in diary_details:
             # 权重加权求和（给次数权重更高的系数，突出使用次数少的重要性）
             alpha = 0.2  # 时间权重系数
-            beta = 2.0   # 次数权重系数 (beta > alpha，突出次数权重重要性)
+            beta = 1.0   # 次数权重系数 (beta > alpha，突出次数权重重要性)
             
             final_weight = alpha * item['time_weight_norm'] + beta * item['count_weight_norm']
             weighted_diaries.append((item['diary'], final_weight))
@@ -488,6 +488,111 @@ class EnhancedDatabaseManager:
             # 如果权重有问题，退回到随机选择
             selected = random.choice(diaries)
             logger.info(f"退回到随机选择日记，ID: {selected['id']}")
+            return selected
+    
+    def get_diary_for_deletion(self, limit: int = None) -> Optional[Dict[str, Any]]:
+        """
+        获取一篇适合删除的日记（时间久远且查看次数多，被选中概率越大）
+        使用与随机查看相反的权重策略
+        
+        Args:
+            limit: 最多考虑的日记数量，None表示使用全部日记
+        
+        Returns:
+            日记字典或None
+        """
+        import random
+        import math
+        from datetime import datetime
+        
+        # 获取日记数据
+        if limit is None:
+            # 获取全部日记，按日期升序排列
+            diaries = self._execute(
+                "SELECT * FROM diaries ORDER BY date ASC",
+                fetch='all'
+            )
+        else:
+            # 仅获取指定数量的日记
+            diaries = self._execute(
+                "SELECT * FROM diaries ORDER BY date ASC LIMIT ?",
+                (limit,),
+                fetch='all'
+            )
+        
+        if not diaries:
+            return None
+        
+        # 计算每个日记的权重（用于删除）
+        weighted_diaries = []
+        weights = []
+        
+        # 计算当前日期，用于计算时间权重
+        now = datetime.now()
+        
+        # 计算各项的原始权重，但不立即归一化
+        diary_details = []  # 存储日记和其原始权重，便于分析
+        for diary in diaries:
+            # 解析日期
+            date = datetime.strptime(diary['date'], "%Y-%m-%d %H:%M:%S")
+            
+            # 计算距离今天的天数
+            days_ago = (now - date).days
+            
+            # 原始时间权重：距离现在的天数（越久远，值越大）
+            # 使用对数函数平滑时间差异
+            time_weight_raw = math.log(days_ago + 1)  # 加1避免log(0)
+            
+            # 原始查看次数权重：查看次数越多，越适合删除
+            view_count = diary['view_count']
+            # 使用平方根函数平滑差异，查看次数越多权重越大
+            view_count_weight_raw = math.sqrt(view_count)
+            
+            diary_details.append({
+                'diary': diary,
+                'time_weight_raw': time_weight_raw,
+                'view_count_weight_raw': view_count_weight_raw,
+                'days_ago': days_ago,
+                'view_count': view_count
+            })
+        
+        # 使用分位数归一化而不是最小-最大归一化
+        # 按时间权重排序，分配分位数
+        sorted_by_time = sorted(diary_details, key=lambda x: x['time_weight_raw'])
+        n = len(sorted_by_time)
+        for i, item in enumerate(sorted_by_time):
+            # 分位数值在[0,1]区间 - 时间越久远，权重越高
+            item['time_weight_norm'] = i / (n - 1) if n > 1 else 0.5
+        
+        # 按查看次数权重排序，分配分位数
+        # 查看次数越多权重越高，所以按查看次数升序排列后分配正向分位数
+        sorted_by_view_count = sorted(diary_details, key=lambda x: x['view_count'])  # 按查看次数升序排列
+        for i, item in enumerate(sorted_by_view_count):
+            # 查看次数多的获得更高的分位数
+            item['view_count_weight_norm'] = i / (n - 1) if n > 1 else 0.5
+        
+        # 计算最终权重并准备选择（偏向时间久远且查看次数多的日记）
+        for item in diary_details:
+            # 权重加权求和（时间权重和查看次数权重各占一半，偏向删除久远且热门的日记）
+            alpha = 0.6  # 时间权重系数（略高，因为久远是更重要的删除因素）
+            beta = 0.4   # 查看次数权重系数
+            
+            final_weight = alpha * item['time_weight_norm'] + beta * item['view_count_weight_norm']
+            weighted_diaries.append((item['diary'], final_weight))
+            weights.append(final_weight)
+        
+        # 按权重进行加权随机选择
+        if weights and sum(weights) > 0:
+            # 根据权重随机选择一个最适合删除的日记
+            selected_diary = random.choices([d[0] for d in weighted_diaries], weights=weights, k=1)[0]
+            # 记录详细的权重分析
+            weight_analysis = {d[0]['id']: round(d[1], 4) for d in weighted_diaries}
+            logger.info(f"加权选择待删除日记，ID: {selected_diary['id']}, 权重: {weight_analysis}")
+            return selected_diary
+        else:
+            # 如果权重有问题，退回到随机选择
+            selected = random.choice(diaries)
+            logger.info(f"退回到随机选择待删除日记，ID: {selected['id']}")
             return selected
     
     def search_by_keyword(self, keyword: str, limit: int = 18) -> List[Dict[str, Any]]:

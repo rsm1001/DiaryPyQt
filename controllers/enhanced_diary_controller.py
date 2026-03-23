@@ -71,6 +71,13 @@ class EnhancedDiaryController:
         if diary_dict:
             return Diary.from_dict(diary_dict)
         return None
+
+    def get_diary_for_deletion(self, limit: int = None) -> Optional[Diary]:
+        """获取一篇适合删除的日记（时间久远且查看次数多）"""
+        diary_dict = self.db_manager.get_diary_for_deletion(limit)
+        if diary_dict:
+            return Diary.from_dict(diary_dict)
+        return None
     
     def search_by_keyword(self, keyword: str, limit: int = 18) -> List[Diary]:
         """根据关键词搜索日记"""

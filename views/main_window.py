@@ -213,10 +213,10 @@ class MainWindow(QMainWindow):
         self.random_action.triggered.connect(self.random_view)
         toolbar.addAction(self.random_action)
         
-        # 删除最久远
-        self.delete_action = QAction(QIcon(), '删除最久远', self)
-        self.delete_action.triggered.connect(self.delete_oldest)
-        toolbar.addAction(self.delete_action)
+        # 随机删除
+        self.random_delete_action = QAction(QIcon(), '随机删除', self)
+        self.random_delete_action.triggered.connect(self.random_delete)
+        toolbar.addAction(self.random_delete_action)
         
         # 搜索
         self.search_action = QAction(QIcon(), '搜索', self)
@@ -369,28 +369,36 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.information(self, "提示", "当前没有日记")
     
-    def delete_oldest(self):
-        """删除查看次数最多的日记中最久远的"""
-        diary = self.controller.get_oldest_in_most_viewed()
-        if not diary:
+    def random_delete(self):
+        """随机删除一篇日记（时间久远且查看次数多的优先）"""
+        diary_dict = self.controller.get_diary_for_deletion()
+        if not diary_dict:
             QMessageBox.information(self, "提示", "没有可删除的日记")
             return
         
+        # 准备详细的消息文本
+        content_preview = diary_dict.content[:200]  # 显示前200个字符
+        if len(diary_dict.content) > 200:
+            content_preview += "..."
+        
+        message = (f"即将随机删除一篇日记：\n\n"
+                  f"ID: {diary_dict.id}\n"
+                  f"日期: {diary_dict.date}\n"
+                  f"查看次数: {diary_dict.view_count}\n\n"
+                  f"内容:\n{content_preview}\n\n"
+                  f"确定要删除这条日记吗？")
+        
         reply = QMessageBox.question(
-            self, 
-            "确认删除", 
-            f"即将删除查看次数最多的日记中最久远的日记:\n"
-            f"ID: {diary['id']}\n"
-            f"查看次数: {diary['view_count']}\n"
-            f"内容: {diary['content'][:50]}...\n\n"
-            f"确定要删除吗?",
+            self,
+            "确认删除",
+            message,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            self.controller.delete_diary_by_id(diary['id'])
+            self.controller.delete_diary_by_id(diary_dict.id)
             self.load_data()
-            QMessageBox.information(self, "成功", f"日记 ID:{diary['id']} 已删除")
+            QMessageBox.information(self, "成功", f"日记 ID:{diary_dict.id} 已删除")
     
     def search_diary(self):
         """搜索日记"""
