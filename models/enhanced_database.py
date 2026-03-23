@@ -385,30 +385,110 @@ class EnhancedDatabaseManager:
             fetch='one'
         )
     
-    def get_random_diary(self, limit: int = 20) -> Optional[Dict[str, Any]]:
+    def get_random_diary(self, limit: int = None) -> Optional[Dict[str, Any]]:
         """
-        随机获取一篇日记（从查看次数最少的N篇中随机选择）
+        随机获取一篇日记（基于权重概率选择，使用次数越少，被选中概率越大）
+        使用改进的归一化方法，对全部日记进行计算（除非指定limit）
         
         Args:
-            limit: 查看次数最少的前N篇
+            limit: 最多考虑的日记数量，None表示使用全部日记
         
         Returns:
             日记字典或None
         """
         import random
+        import math
+        from datetime import datetime
         
-        diaries = self._execute(
-            "SELECT * FROM diaries ORDER BY view_count ASC, date DESC LIMIT ?",
-            (limit,),
-            fetch='all'
-        )
+        # 获取日记数据
+        if limit is None:
+            # 获取全部日记，按日期升序排列
+            diaries = self._execute(
+                "SELECT * FROM diaries ORDER BY date ASC",
+                fetch='all'
+            )
+        else:
+            # 仅获取指定数量的日记
+            diaries = self._execute(
+                "SELECT * FROM diaries ORDER BY date ASC LIMIT ?",
+                (limit,),
+                fetch='all'
+            )
         
         if not diaries:
             return None
         
-        selected = random.choice(diaries)
-        logger.info(f"随机选择日记，ID: {selected['id']}")
-        return selected
+        # 计算每个日记的权重
+        weighted_diaries = []
+        weights = []
+        
+        # 计算当前日期，用于计算时间权重
+        now = datetime.now()
+        
+        # 计算各项的原始权重，但不立即归一化
+        diary_details = []  # 存储日记和其原始权重，便于分析
+        for diary in diaries:
+            # 解析日期
+            date = datetime.strptime(diary['date'], "%Y-%m-%d %H:%M:%S")
+            
+            # 计算距离今天的天数
+            days_ago = (now - date).days
+            
+            # 原始时间权重：距离现在的天数（越久远，值越大）
+            # 使用对数函数平滑时间差异
+            time_weight_raw = math.log(days_ago + 1)  # 加1避免log(0)
+            
+            # 原始次数权重：使用次数越少，权重越大
+            use_count = diary['view_count']
+            # 使用更强的倒数函数，提高敏感度
+            count_weight_raw = 1.0 / ((use_count + 1) ** 1.5)  # 使用1.5次幂，提高敏感度
+            
+            diary_details.append({
+                'diary': diary,
+                'time_weight_raw': time_weight_raw,
+                'count_weight_raw': count_weight_raw,
+                'days_ago': days_ago,
+                'use_count': use_count
+            })
+        
+        # 使用分位数归一化而不是最小-最大归一化
+        # 按时间权重排序，分配分位数
+        sorted_by_time = sorted(diary_details, key=lambda x: x['time_weight_raw'])
+        n = len(sorted_by_time)
+        for i, item in enumerate(sorted_by_time):
+            # 分位数值在[0,1]区间
+            item['time_weight_norm'] = i / (n - 1) if n > 1 else 0.5
+        
+        # 按次数权重排序，分配分位数
+        # 注意：次数越少权重越高，所以我们要让使用次数少的获得更高的分位数
+        sorted_by_count = sorted(diary_details, key=lambda x: x['use_count'])  # 按使用次数升序排列
+        for i, item in enumerate(sorted_by_count):
+            # 次数少的获得更高的分位数，使用 (n-1-i)/(n-1) 实现倒序
+            item['count_weight_norm'] = (n - 1 - i) / (n - 1) if n > 1 else 0.5
+        
+        # 计算最终权重并准备选择
+        for item in diary_details:
+            # 权重加权求和（给次数权重更高的系数，突出使用次数少的重要性）
+            alpha = 0.2  # 时间权重系数
+            beta = 2.0   # 次数权重系数 (beta > alpha，突出次数权重重要性)
+            
+            final_weight = alpha * item['time_weight_norm'] + beta * item['count_weight_norm']
+            weighted_diaries.append((item['diary'], final_weight))
+            weights.append(final_weight)
+        
+        # 按权重进行加权随机选择
+        if weights and sum(weights) > 0:
+            # 根据权重随机选择一个
+            selected_diary = random.choices([d[0] for d in weighted_diaries], weights=weights, k=1)[0]
+            # 记录详细的权重分析
+            weight_analysis = {d[0]['id']: round(d[1], 4) for d in weighted_diaries}
+            logger.info(f"加权随机选择日记，ID: {selected_diary['id']}, 权重: {weight_analysis}")
+            return selected_diary
+        else:
+            # 如果权重有问题，退回到随机选择
+            selected = random.choice(diaries)
+            logger.info(f"退回到随机选择日记，ID: {selected['id']}")
+            return selected
     
     def search_by_keyword(self, keyword: str, limit: int = 18) -> List[Dict[str, Any]]:
         """

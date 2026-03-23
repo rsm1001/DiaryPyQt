@@ -65,7 +65,7 @@ class EnhancedDiaryController:
         """获取查看次数最多的日记中最久远的"""
         return self.db_manager.get_oldest_in_most_viewed(limit)
     
-    def random_view_diary(self, limit: int = 20) -> Optional[Diary]:
+    def random_view_diary(self, limit: int = None) -> Optional[Diary]:
         """随机获取一篇日记"""
         diary_dict = self.db_manager.get_random_diary(limit)
         if diary_dict:
