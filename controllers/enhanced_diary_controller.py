@@ -112,6 +112,71 @@ class EnhancedDiaryController:
         """从备份恢复数据库"""
         return self.db_manager.restore_database(backup_path)
     
-    def validate_database_integrity(self) -> bool:
-        """验证数据库完整性"""
-        return self.db_manager.validate_database_integrity()
+    def get_diary_with_tags_by_id(self, diary_id: int) -> Optional[Diary]:
+        """获取日记及其所有标签"""
+        diary_dict = self.db_manager.get_diary_with_tags_by_id(diary_id)
+        if diary_dict:
+            return Diary.from_dict(diary_dict)
+        return None
+
+    def get_all_diaries_with_tags(self, limit: Optional[int] = None) -> List[Diary]:
+        """获取所有日记及其标签"""
+        diaries_dicts = self.db_manager.get_all_diaries_with_tags(limit)
+        return [Diary.from_dict(d) for d in diaries_dicts]
+    
+    # ========================================================================
+    # 标签操作
+    # ========================================================================
+    
+    def add_tag(self, name: str) -> Optional[Dict]:
+        """添加新标签"""
+        return self.db_manager.add_tag(name)
+    
+    def get_tag_by_id(self, tag_id: int) -> Optional[Dict]:
+        """根据ID获取标签"""
+        return self.db_manager.get_tag_by_id(tag_id)
+    
+    def get_tag_by_name(self, name: str) -> Optional[Dict]:
+        """根据名称获取标签"""
+        return self.db_manager.get_tag_by_name(name)
+    
+    def get_all_tags(self) -> List[Dict]:
+        """获取所有标签"""
+        return self.db_manager.get_all_tags()
+    
+    def update_tag(self, tag_id: int, new_name: str) -> bool:
+        """更新标签名称"""
+        return self.db_manager.update_tag(tag_id, new_name)
+    
+    def delete_tag_by_id(self, tag_id: int) -> bool:
+        """删除标签（仅在未被使用的前提下）"""
+        return self.db_manager.delete_tag_by_id(tag_id)
+    
+    def get_unused_tags(self) -> List[Dict]:
+        """获取未被使用的标签"""
+        return self.db_manager.get_unused_tags()
+    
+    # ========================================================================
+    # 日记-标签关联操作
+    # ========================================================================
+    
+    def add_diary_tag(self, diary_id: int, tag_id: int) -> bool:
+        """为日记添加标签"""
+        return self.db_manager.add_diary_tag(diary_id, tag_id)
+    
+    def remove_diary_tag(self, diary_id: int, tag_id: int) -> bool:
+        """移除日记的特定标签"""
+        return self.db_manager.remove_diary_tag(diary_id, tag_id)
+    
+    def get_tags_by_diary_id(self, diary_id: int) -> List[Dict]:
+        """获取某篇日记的所有标签"""
+        return self.db_manager.get_tags_by_diary_id(diary_id)
+    
+    def get_diaries_by_tag_id(self, tag_id: int) -> List[Diary]:
+        """获取标记了特定标签的所有日记"""
+        diaries_dicts = self.db_manager.get_diaries_by_tag_id(tag_id)
+        return [Diary.from_dict(d) for d in diaries_dicts]
+    
+    def assign_tags_to_diary(self, diary_id: int, tag_ids: List[int]) -> bool:
+        """为日记分配一组标签（替换原有标签）"""
+        return self.db_manager.assign_tags_to_diary(diary_id, tag_ids)

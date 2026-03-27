@@ -22,7 +22,7 @@ class DiaryTableModel(QAbstractTableModel):
     def __init__(self, diaries=None, parent=None):
         super().__init__(parent)
         self.diaries = diaries or []
-        self.headers = ['ID', '日期', '查看次数', '内容预览']
+        self.headers = ['ID', '日期', '查看次数', '标签', '内容预览']
     
     def rowCount(self, parent=QModelIndex()):
         return len(self.diaries)
@@ -44,7 +44,12 @@ class DiaryTableModel(QAbstractTableModel):
                 return diary.date
             elif col == 2:  # 查看次数
                 return str(diary.view_count)
-            elif col == 3:  # 内容预览
+            elif col == 3:  # 标签
+                if hasattr(diary, 'tags') and diary.tags:
+                    # 只显示标签名称，用逗号分隔
+                    return ", ".join([tag['name'] for tag in diary.tags])
+                return "无标签"
+            elif col == 4:  # 内容预览
                 content = diary.content
                 return content[:50] + "..." if len(content) > 50 else content
         elif role == Qt.ItemDataRole.UserRole:
@@ -54,14 +59,14 @@ class DiaryTableModel(QAbstractTableModel):
             col = index.column()
             if col in [0, 2]:  # ID 和 查看次数 居中
                 return Qt.AlignmentFlag.AlignCenter
-            elif col == 1:  # 日期 居中
+            elif col in [1, 3]:  # 日期和标签 居中
                 return Qt.AlignmentFlag.AlignCenter
-            elif col == 3:  # 内容预览 左对齐
+            elif col in [4]:  # 内容预览 左对齐
                 return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         elif role == Qt.ItemDataRole.FontRole:
             # 设置字体，使表格更美观
             font = QFont()
-            if index.column() == 3:  # 内容预览列使用较小字体
+            if index.column() in [3, 4]:  # 标签和内容预览列使用较小字体
                 font.setPointSize(9)
             else:
                 font.setPointSize(10)
@@ -130,7 +135,12 @@ class MainWindow(QMainWindow):
         
         # 设置表头
         header = self.table_view.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # 设置不同列的尺寸调整模式
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # ID列自适应内容
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # 日期列自适应内容
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # 查看次数列自适应内容
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # 标签列自适应内容
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)  # 内容预览列拉伸填充剩余空间
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)  # 设置表头居中对齐
         
         # 设置表格样式
@@ -320,9 +330,15 @@ class MainWindow(QMainWindow):
         if index.isValid():
             diary = self.model.data(index, Qt.ItemDataRole.UserRole)
             if diary:
+                # 构建标签字符串
+                tags_str = "无标签"
+                if hasattr(diary, 'tags') and diary.tags:
+                    tags_str = ", ".join([tag['name'] for tag in diary.tags])
+                
                 self.detail_label.setText(f"<b>ID:</b> {diary.id}<br>"
                                         f"<b>日期:</b> {diary.date}<br>"
                                         f"<b>查看次数:</b> {diary.view_count}<br>"
+                                        f"<b>标签:</b> {tags_str}<br>"
                                         f"<b>内容:</b> {diary.content}")
                 
                 # 增加查看次数
@@ -351,8 +367,12 @@ class MainWindow(QMainWindow):
         dialog = DiaryEditDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             content = dialog.get_content()
+            selected_tag_ids = dialog.get_selected_tag_ids()
             if content.strip():
-                self.controller.add_diary(content)
+                diary = self.controller.add_diary(content)
+                if diary and selected_tag_ids:
+                    # 为新日记分配选中的标签
+                    self.controller.assign_tags_to_diary(diary.id, selected_tag_ids)
                 self.load_data()
     
     def random_view(self):
@@ -432,8 +452,11 @@ class MainWindow(QMainWindow):
             dialog = DiaryEditDialog(self, diary)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 content = dialog.get_content()
+                selected_tag_ids = dialog.get_selected_tag_ids()
                 if content.strip():
                     self.controller.update_diary(diary.id, content)
+                    # 更新日记的标签
+                    self.controller.assign_tags_to_diary(diary.id, selected_tag_ids)
                     self.load_data()
     
     def delete_selected(self):
@@ -537,14 +560,19 @@ class DiaryEditDialog(QDialog):
     def __init__(self, parent=None, diary=None):
         super().__init__(parent)
         self.diary = diary
+        self.all_tags = []  # 存储所有可用标签
+        self.selected_tag_ids = set()  # 存储当前选中的标签ID
+        self.tag_checkboxes = {}  # 存储标签复选框映射
         self.init_ui()
         self.load_data()
+        self.load_tags()  # 加载所有标签
+        self.update_tag_selections()  # 更新标签选择状态
     
     def init_ui(self):
         """初始化界面"""
         self.setWindowTitle("编辑日记" if self.diary else "新建日记")
         # 设置窗口大小
-        self.resize(600, 400)
+        self.resize(600, 500)  # 增加高度以容纳标签选择
         
         # 设置窗口居中于父窗口
         self.center_on_parent()
@@ -569,6 +597,40 @@ class DiaryEditDialog(QDialog):
         # 内容编辑区域
         self.content_edit = QTextEdit()
         layout.addWidget(self.content_edit)
+        
+        # 标签选择区域
+        tags_group = QGroupBox("标签选择")
+        tags_layout = QVBoxLayout()
+        
+        # 创建滚动区域以容纳可能很多的标签
+        self.scroll_area = QScrollArea()
+        self.scroll_widget = QWidget()
+        self.tags_inner_layout = QVBoxLayout()
+        
+        self.scroll_widget.setLayout(self.tags_inner_layout)
+        self.scroll_area.setWidget(self.scroll_widget)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setMaximumHeight(150)  # 设置最大高度
+        
+        tags_layout.addWidget(self.scroll_area)
+        tags_group.setLayout(tags_layout)
+        layout.addWidget(tags_group)
+        
+        # 标签按钮区域
+        button_layout = QHBoxLayout()
+        
+        # 刷新标签按钮
+        self.refresh_tags_btn = QPushButton("刷新标签")
+        self.refresh_tags_btn.clicked.connect(self.load_tags)
+        button_layout.addWidget(self.refresh_tags_btn)
+        
+        # 添加新标签按钮
+        self.add_tag_btn = QPushButton("添加标签")
+        self.add_tag_btn.clicked.connect(self.add_new_tag)
+        button_layout.addWidget(self.add_tag_btn)
+        
+        button_layout.addStretch()  # 弹性空间
+        tags_layout.addLayout(button_layout)
         
         # 按钮区域 - 居中对齐
         button_layout = QHBoxLayout()
@@ -614,10 +676,89 @@ class DiaryEditDialog(QDialog):
         """加载日记数据"""
         if self.diary:
             self.content_edit.setPlainText(self.diary.content)
+            # 如果是编辑现有日记，加载其已有的标签
+            if hasattr(self.diary, 'tags') and self.diary.tags:
+                self.selected_tag_ids = {tag['id'] for tag in self.diary.tags}
+    
+    def load_tags(self):
+        """加载所有可用标签"""
+        # 清除现有的复选框
+        for checkbox in self.tag_checkboxes.values():
+            checkbox.setParent(None)
+        self.tag_checkboxes.clear()
+        
+        # 从控制器获取所有标签
+        try:
+            # 通过父窗口获取控制器
+            controller = self.parent().controller
+            self.all_tags = controller.get_all_tags()
+        except:
+            # 如果无法访问父窗口控制器，则创建临时控制器
+            from controllers.enhanced_diary_controller import EnhancedDiaryController
+            import os
+            db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "diary.db")
+            temp_controller = EnhancedDiaryController(db_path)
+            self.all_tags = temp_controller.get_all_tags()
+        
+        # 创建标签复选框
+        for tag in self.all_tags:
+            checkbox = QCheckBox(tag['name'])
+            checkbox.setObjectName(f"tag_checkbox_{tag['id']}")
+            checkbox.setChecked(tag['id'] in self.selected_tag_ids)
+            checkbox.stateChanged.connect(self.on_tag_state_changed)
+            self.tag_checkboxes[tag['id']] = checkbox
+            self.tags_inner_layout.addWidget(checkbox)
+    
+    def update_tag_selections(self):
+        """更新标签选择状态"""
+        for tag_id, checkbox in self.tag_checkboxes.items():
+            checkbox.setChecked(tag_id in self.selected_tag_ids)
+    
+    def on_tag_state_changed(self, state):
+        """处理标签选择状态变化"""
+        sender = self.sender()
+        # 提取标签ID
+        for tag_id, checkbox in self.tag_checkboxes.items():
+            if checkbox == sender:
+                if state == Qt.CheckState.Checked.value:
+                    self.selected_tag_ids.add(tag_id)
+                else:
+                    self.selected_tag_ids.discard(tag_id)
+                break
+    
+    def add_new_tag(self):
+        """添加新标签"""
+        tag_name, ok = QInputDialog.getText(self, "添加新标签", "请输入标签名称:")
+        if ok and tag_name.strip():
+            try:
+                # 通过父窗口获取控制器
+                controller = self.parent().controller
+                result = controller.add_tag(tag_name.strip())
+                if result:
+                    QMessageBox.information(self, "成功", f"标签 '{tag_name}' 添加成功！")
+                    self.load_tags()  # 重新加载标签列表
+                else:
+                    QMessageBox.warning(self, "错误", f"标签 '{tag_name}' 已存在或添加失败！")
+            except:
+                # 如果无法访问父窗口控制器，则创建临时控制器
+                from controllers.enhanced_diary_controller import EnhancedDiaryController
+                import os
+                db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "diary.db")
+                temp_controller = EnhancedDiaryController(db_path)
+                result = temp_controller.add_tag(tag_name.strip())
+                if result:
+                    QMessageBox.information(self, "成功", f"标签 '{tag_name}' 添加成功！")
+                    self.load_tags()  # 重新加载标签列表
+                else:
+                    QMessageBox.warning(self, "错误", f"标签 '{tag_name}' 已存在或添加失败！")
     
     def get_content(self):
         """获取内容"""
         return self.content_edit.toPlainText()
+    
+    def get_selected_tag_ids(self):
+        """获取选中的标签ID列表"""
+        return list(self.selected_tag_ids)
 
 
 class DiaryViewDialog(QDialog):
