@@ -629,6 +629,16 @@ class DiaryEditDialog(QDialog):
         self.add_tag_btn.clicked.connect(self.add_new_tag)
         button_layout.addWidget(self.add_tag_btn)
         
+        # 删除未使用标签按钮
+        self.delete_unused_tags_btn = QPushButton("删除未用标签")
+        self.delete_unused_tags_btn.clicked.connect(self.delete_unused_tags)
+        button_layout.addWidget(self.delete_unused_tags_btn)
+        
+        # 管理特定标签按钮
+        self.manage_specific_tag_btn = QPushButton("管理标签")
+        self.manage_specific_tag_btn.clicked.connect(self.manage_specific_tag)
+        button_layout.addWidget(self.manage_specific_tag_btn)
+        
         button_layout.addStretch()  # 弹性空间
         tags_layout.addLayout(button_layout)
         
@@ -751,6 +761,125 @@ class DiaryEditDialog(QDialog):
                     self.load_tags()  # 重新加载标签列表
                 else:
                     QMessageBox.warning(self, "错误", f"标签 '{tag_name}' 已存在或添加失败！")
+
+    def delete_unused_tags(self):
+        """删除未被使用的标签"""
+        try:
+            # 通过父窗口获取控制器
+            controller = self.parent().controller
+            unused_tags = controller.get_unused_tags()
+        except:
+            # 如果无法访问父窗口控制器，则创建临时控制器
+            from controllers.enhanced_diary_controller import EnhancedDiaryController
+            import os
+            db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "diary.db")
+            temp_controller = EnhancedDiaryController(db_path)
+            unused_tags = temp_controller.get_unused_tags()
+        
+        if not unused_tags:
+            QMessageBox.information(self, "提示", "没有未被使用的标签，无需删除。")
+            return
+        
+        # 显示未使用的标签列表供用户确认
+        unused_tag_names = [tag['name'] for tag in unused_tags]
+        tag_list_str = "\n".join(unused_tag_names)
+        
+        reply = QMessageBox.question(
+            self,
+            "确认删除未使用标签",
+            f"以下标签未被任何日记使用，是否删除？\n\n{tag_list_str}\n\n确认删除吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            deleted_count = 0
+            failed_count = 0
+            
+            for tag in unused_tags:
+                try:
+                    # 尝试删除标签
+                    success = controller.delete_tag_by_id(tag['id'])
+                    if success:
+                        deleted_count += 1
+                    else:
+                        failed_count += 1
+                except Exception as e:
+                    failed_count += 1
+                    print(f"删除标签失败: {e}")
+            
+            QMessageBox.information(self, "删除结果", 
+                                   f"删除完成！\n成功删除: {deleted_count} 个\n失败: {failed_count} 个")
+            self.load_tags()  # 重新加载标签列表
+
+    def manage_specific_tag(self):
+        """管理特定标签（用于删除特定标签）"""
+        try:
+            # 通过父窗口获取控制器
+            controller = self.parent().controller
+            all_tags = controller.get_all_tags()
+        except:
+            # 如果无法访问父窗口控制器，则创建临时控制器
+            from controllers.enhanced_diary_controller import EnhancedDiaryController
+            import os
+            db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "diary.db")
+            temp_controller = EnhancedDiaryController(db_path)
+            all_tags = temp_controller.get_all_tags()
+        
+        if not all_tags:
+            QMessageBox.information(self, "提示", "当前没有标签。")
+            return
+        
+        # 创建标签列表供用户选择
+        tag_names = [tag['name'] for tag in all_tags]
+        selected_tag, ok = QInputDialog.getItem(self, "选择标签", "选择要管理的标签:", tag_names, 0, False)
+        
+        if not (ok and selected_tag):
+            return
+        
+        # 查找所选标签的详细信息
+        selected_tag_detail = next((tag for tag in all_tags if tag['name'] == selected_tag), None)
+        if not selected_tag_detail:
+            return
+        
+        # 检查标签是否被使用
+        try:
+            diaries_using_tag = controller.get_diaries_by_tag_id(selected_tag_detail['id'])
+            usage_count = len(diaries_using_tag)
+        except:
+            from controllers.enhanced_diary_controller import EnhancedDiaryController
+            import os
+            db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "diary.db")
+            temp_controller = EnhancedDiaryController(db_path)
+            diaries_using_tag = temp_controller.get_diaries_by_tag_id(selected_tag_detail['id'])
+            usage_count = len(diaries_using_tag)
+        
+        # 根据使用情况决定操作
+        if usage_count > 0:
+            reply = QMessageBox.question(
+                self,
+                "标签正在被使用",
+                f"标签 '{selected_tag}' 正在被 {usage_count} 篇日记使用，无法删除。\n\n"
+                f"您可以选择其他标签进行操作。",
+                QMessageBox.StandardButton.Ok
+            )
+        else:
+            reply = QMessageBox.question(
+                self,
+                "确认删除未使用标签",
+                f"标签 '{selected_tag}' 未被任何日记使用，是否删除？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                try:
+                    success = controller.delete_tag_by_id(selected_tag_detail['id'])
+                    if success:
+                        QMessageBox.information(self, "成功", f"标签 '{selected_tag}' 已删除。")
+                        self.load_tags()  # 重新加载标签列表
+                    else:
+                        QMessageBox.warning(self, "失败", f"删除标签 '{selected_tag}' 失败。")
+                except Exception as e:
+                    QMessageBox.critical(self, "错误", f"删除标签时发生错误: {str(e)}")
     
     def get_content(self):
         """获取内容"""
@@ -901,6 +1030,11 @@ class SearchDialog(QDialog):
         self.clear_filter_btn.clicked.connect(self.clear_filter)
         tag_button_layout.addWidget(self.clear_filter_btn)
         
+        # 添加删除未使用标签按钮
+        self.delete_unused_tags_btn = QPushButton("删除未用标签")
+        self.delete_unused_tags_btn.clicked.connect(self.delete_unused_tags)
+        tag_button_layout.addWidget(self.delete_unused_tags_btn)
+        
         tags_layout.addLayout(tag_button_layout)
         
         tags_group.setLayout(tags_layout)
@@ -1042,3 +1176,42 @@ class SearchDialog(QDialog):
         self.keyword_input.clear()
         diaries = self.controller.get_all_diaries(limit=50)
         self.display_results(diaries, "全部日记")
+    
+    def delete_unused_tags(self):
+        """删除未被使用的标签"""
+        unused_tags = self.controller.get_unused_tags()
+        
+        if not unused_tags:
+            QMessageBox.information(self, "提示", "没有未被使用的标签，无需删除。")
+            return
+        
+        # 显示未使用的标签列表供用户确认
+        unused_tag_names = [tag['name'] for tag in unused_tags]
+        tag_list_str = "\n".join(unused_tag_names)
+        
+        reply = QMessageBox.question(
+            self,
+            "确认删除未使用标签",
+            f"以下标签未被任何日记使用，是否删除？\n\n{tag_list_str}\n\n确认删除吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            deleted_count = 0
+            failed_count = 0
+            
+            for tag in unused_tags:
+                try:
+                    # 尝试删除标签
+                    success = self.controller.delete_tag_by_id(tag['id'])
+                    if success:
+                        deleted_count += 1
+                    else:
+                        failed_count += 1
+                except Exception as e:
+                    failed_count += 1
+                    print(f"删除标签失败: {e}")
+            
+            QMessageBox.information(self, "删除结果", 
+                                   f"删除完成！\n成功删除: {deleted_count} 个\n失败: {failed_count} 个")
+            self.load_tags()  # 重新加载标签列表
