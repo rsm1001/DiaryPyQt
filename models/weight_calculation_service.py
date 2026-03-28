@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import List, Dict, Optional, Any, Tuple, Protocol
 
 from .weight_calculation_core import calculate_raw_weights
+from .normalization_strategies import NormalizationStrategyFactory
 
 
 class DatabaseManagerInterface(Protocol):
@@ -38,52 +39,8 @@ class WeightCalculationService:
         Returns:
             包含归一化权重的更新后的列表
         """
-        n = len(diary_details)
-        
-        if selection_type == 'deletion':
-            # 按时间权重排序，分配分位数
-            sorted_by_time = sorted(diary_details, key=lambda x: x['time_weight_raw'])
-            for i, item in enumerate(sorted_by_time):
-                # 分位数值在[0,1]区间 - 时间越久远，权重越高
-                item['time_weight_norm'] = i / (n - 1) if n > 1 else 0.5
-            
-            # 按查看次数权重排序，分配分位数
-            sorted_by_view_count = sorted(diary_details, key=lambda x: x['view_count'])  # 按查看次数升序排列
-            for i, item in enumerate(sorted_by_view_count):
-                # 查看次数多的获得更高的分位数
-                item['view_count_weight_norm'] = i / (n - 1) if n > 1 else 0.5
-            
-            # 计算最终权重
-            for item in diary_details:
-                # 权重加权求和（时间权重和查看次数权重，偏向删除久远且热门的日记）
-                alpha = 0.6  # 时间权重系数（略高，因为久远是更重要的删除因素）
-                beta = 0.4   # 查看次数权重系数
-                
-                final_weight = alpha * item['time_weight_norm'] + beta * item['view_count_weight_norm']
-                item['final_weight'] = final_weight
-        else:  # random mode
-            # 按时间权重排序，分配分位数
-            sorted_by_time = sorted(diary_details, key=lambda x: x['time_weight_raw'])
-            for i, item in enumerate(sorted_by_time):
-                # 分位数值在[0,1]区间
-                item['time_weight_norm'] = i / (n - 1) if n > 1 else 0.5
-            
-            # 按次数权重排序，分配分位数 - 次数少的获得更高的分位数
-            sorted_by_count = sorted(diary_details, key=lambda x: x['use_count'])  # 按使用次数升序排列
-            for i, item in enumerate(sorted_by_count):
-                # 次数少的获得更高的分位数，使用 (n-1-i)/(n-1) 实现倒序
-                item['count_weight_norm'] = (n - 1 - i) / (n - 1) if n > 1 else 0.5
-            
-            # 计算最终权重
-            for item in diary_details:
-                # 权重加权求和（给次数权重更高的系数，突出使用次数少的重要性）
-                alpha = 0.2  # 时间权重系数
-                beta = 1.0   # 次数权重系数 (beta > alpha，突出次数权重重要性)
-                
-                final_weight = alpha * item['time_weight_norm'] + beta * item['count_weight_norm']
-                item['final_weight'] = final_weight
-        
-        return diary_details
+        strategy = NormalizationStrategyFactory.get_strategy(selection_type)
+        return strategy.normalize(diary_details)
     
     @staticmethod
     def calculate_selection_weights(

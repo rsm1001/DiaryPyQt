@@ -8,6 +8,7 @@ from typing import List, Dict, Optional, Any, Tuple
 # 修正导入路径
 from .enhanced_database import EnhancedDatabaseManager
 from .weight_calculation_service import WeightCalculationService
+from .normalization_strategies import NormalizationStrategyFactory
 
 
 class WeightCalculator:
