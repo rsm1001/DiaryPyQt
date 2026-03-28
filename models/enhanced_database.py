@@ -51,6 +51,34 @@ class EnhancedDatabaseManager:
         import os  # 在使用os之前重新导入，以避免作用域问题
         logger.info(f"EnhancedDatabaseManager初始化完成，数据库路径: {os.path.abspath(self.db_path)}")
     
+    def get_all_diaries(self) -> List[Dict[str, Any]]:
+        """
+        获取所有日记（按日期倒序）- 符合DatabaseManagerInterface协议
+        
+        Returns:
+            日记列表
+        """
+        return self._execute(
+            "SELECT * FROM diaries ORDER BY date ASC",
+            fetch='all'
+        ) or []
+    
+    def get_diaries_with_limit(self, limit: int) -> List[Dict[str, Any]]:
+        """
+        获取指定数量的日记（按日期倒序）- 符合DatabaseManagerInterface协议
+        
+        Args:
+            limit: 限制数量
+        
+        Returns:
+            日记列表
+        """
+        return self._execute(
+            "SELECT * FROM diaries ORDER BY date ASC LIMIT ?",
+            (limit,),
+            fetch='all'
+        ) or []
+
     def _ensure_directory(self):
         """确保数据库目录存在"""
         db_dir = os.path.dirname(self.db_path)
@@ -423,23 +451,16 @@ class EnhancedDatabaseManager:
         Returns:
             日记字典或None
         """
-        from .weight_calculator import WeightCalculator
+        from .weight_calculation_service import WeightCalculationService
         
         # 使用权重计算器获取加权随机日记
-        selected_diary = WeightCalculator.get_weighted_random_diary(self, limit)
+        service = WeightCalculationService()
+        diaries = self.get_all_diaries() if limit is None else self.get_diaries_with_limit(limit)
         
-        if selected_diary:
-            # 记录详细的权重分析
-            diaries = self._execute(
-                "SELECT * FROM diaries ORDER BY date ASC" + (f" LIMIT {limit}" if limit else ""),
-                fetch='all'
-            )
-            if diaries:
-                weighted_diaries = WeightCalculator.calculate_selection_weights(diaries, 'random')
-                weight_analysis = {d[0]['id']: round(d[1], 4) for d in weighted_diaries}
-                logger.info(f"加权随机选择日记，ID: {selected_diary['id']}, 权重: {weight_analysis}")
+        if not diaries:
+            return None
         
-        return selected_diary
+        return service.get_weighted_random_diary_from_data(diaries)
     
     def get_diary_for_deletion(self, limit: int = None) -> Optional[Dict[str, Any]]:
         """
@@ -452,23 +473,16 @@ class EnhancedDatabaseManager:
         Returns:
             日记字典或None
         """
-        from .weight_calculator import WeightCalculator
+        from .weight_calculation_service import WeightCalculationService
         
         # 使用权重计算器获取加权删除日记
-        selected_diary = WeightCalculator.get_weighted_deletion_diary(self, limit)
+        service = WeightCalculationService()
+        diaries = self.get_all_diaries() if limit is None else self.get_diaries_with_limit(limit)
         
-        if selected_diary:
-            # 记录详细的权重分析
-            diaries = self._execute(
-                "SELECT * FROM diaries ORDER BY date ASC" + (f" LIMIT {limit}" if limit else ""),
-                fetch='all'
-            )
-            if diaries:
-                weighted_diaries = WeightCalculator.calculate_selection_weights(diaries, 'deletion')
-                weight_analysis = {d[0]['id']: round(d[1], 4) for d in weighted_diaries}
-                logger.info(f"加权选择待删除日记，ID: {selected_diary['id']}, 权重: {weight_analysis}")
+        if not diaries:
+            return None
         
-        return selected_diary
+        return service.get_weighted_deletion_diary_from_data(diaries)
     
     def search_by_keyword(self, keyword: str, limit: int = 18) -> List[Dict[str, Any]]:
         """
