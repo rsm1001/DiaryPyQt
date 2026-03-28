@@ -15,6 +15,7 @@ import csv
 from .tag_manager import TagManager
 from .migration_backup_manager import MigrationBackupManager
 from .database_query_mixin import DatabaseQueryMixin
+from .diary_operations import DiaryOperationsMixin
 
 # 导入服务模块 - 使用动态导入以避免循环依赖和相对导入问题
 def _import_services_lazily():
@@ -32,7 +33,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class EnhancedDatabaseManager(DatabaseQueryMixin):
+class EnhancedDatabaseManager(DatabaseQueryMixin, DiaryOperationsMixin):
     """增强版SQLite数据库管理器 - 包含完整的迁移和备份功能"""
     
     def __init__(self, db_path: str = None):
@@ -91,20 +92,15 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
         import os  # 在使用os之前重新导入，以避免作用域问题
         logger.info(f"EnhancedDatabaseManager初始化完成，数据库路径: {os.path.abspath(self.db_path)}")
     
-    def get_all_diaries(self) -> List[Dict[str, Any]]:
+    def get_all_diaries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        获取所有日记（按日期倒序）- 符合DatabaseManagerInterface协议
+        获取所有日记（按日期倒序）- 符合DatabaseManagerInterface协议，带标签信息
         
         Returns:
             日记列表
         """
         # 使用日记内容服务获取日记，然后添加标签信息
-        diaries = self.diary_content_service.get_all_diaries()
-        
-        # 对每篇日记获取完整的标签列表
-        for diary in diaries:
-            diary['tags'] = self.get_tags_by_diary_id(diary['id'])
-        
+        diaries = self.diary_content_service.get_all_diaries_with_tags(limit)
         return diaries
     
     def get_diaries_with_limit(self, limit: int) -> List[Dict[str, Any]]:
@@ -246,150 +242,6 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
     # ========================================================================
     # 日记CRUD操作
     # ========================================================================
-    
-    def add_diary(self, content: str) -> Optional[Dict[str, Any]]:
-        """
-        添加新日记
-        
-        Args:
-            content: 日记内容
-        
-        Returns:
-            新创建的日记字典
-        """
-        return self.diary_content_service.add_diary(content)
-    
-    def get_diary_by_id(self, diary_id: int) -> Optional[Dict[str, Any]]:
-        """
-        根据ID获取日记
-        
-        Args:
-            diary_id: 日记ID
-        
-        Returns:
-            日记字典或None
-        """
-        return self.diary_content_service.get_diary_by_id(diary_id)
-    
-    def update_diary(self, diary_id: int, new_content: str) -> bool:
-        """
-        更新日记内容
-        
-        Args:
-            diary_id: 日记ID
-            new_content: 新内容
-        
-        Returns:
-            是否更新成功
-        """
-        return self.diary_content_service.update_diary(diary_id, new_content)
-    
-    def delete_diary_by_id(self, diary_id: int) -> Optional[Dict[str, Any]]:
-        """
-        根据ID删除日记
-        
-        Args:
-            diary_id: 日记ID
-        
-        Returns:
-            被删除的日记字典或None
-        """
-        return self.diary_content_service.delete_diary_by_id(diary_id)
-    
-    def update_diary(self, diary_id: int, new_content: str) -> bool:
-        """
-        更新日记内容
-        
-        Args:
-            diary_id: 日记ID
-            new_content: 新内容
-        
-        Returns:
-            是否更新成功
-        """
-        if not new_content or not new_content.strip():
-            logger.warning("尝试更新为空内容")
-            return False
-        
-        date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        rowcount = self._execute(
-            "UPDATE diaries SET content = ?, date = ? WHERE id = ?",
-            (new_content.strip(), date, diary_id),
-            fetch='rowcount'
-        )
-        
-        if rowcount > 0:
-            logger.info(f"更新日记成功，ID: {diary_id}")
-            return True
-        logger.warning(f"更新日记失败，ID: {diary_id} 不存在")
-        return False
-    
-    def delete_diary_by_id(self, diary_id: int) -> Optional[Dict[str, Any]]:
-        """
-        根据ID删除日记
-        
-        Args:
-            diary_id: 日记ID
-        
-        Returns:
-            被删除的日记字典或None
-        """
-        # 先获取日记信息
-        diary = self.get_diary_by_id(diary_id)
-        if not diary:
-            logger.warning(f"删除失败，日记不存在: {diary_id}")
-            return None
-        
-        # 删除日记
-        self._execute(
-            "DELETE FROM diaries WHERE id = ?",
-            (diary_id,)
-        )
-        
-        logger.info(f"删除日记成功，ID: {diary_id}")
-        return diary
-    
-    # ========================================================================
-    # 查看次数操作
-    # ========================================================================
-    
-    def increment_view_count(self, diary_id: int) -> Optional[int]:
-        """
-        增加日记查看次数
-        
-        Args:
-            diary_id: 日记ID
-        
-        Returns:
-            新的查看次数或None
-        """
-        return self.view_count_service.increment_view_count(diary_id)
-    
-    def decrease_view_count(self, diary_id: int, penalty: int = 1) -> bool:
-        """
-        减少日记查看次数
-        
-        Args:
-            diary_id: 日记ID
-            penalty: 减少的数量
-        
-        Returns:
-            是否操作成功
-        """
-        return self.view_count_service.decrease_view_count(diary_id, penalty)
-    
-    def get_all_diaries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
-        """
-        获取所有日记（按日期倒序）
-        
-        Args:
-            limit: 限制数量
-        
-        Returns:
-            日记列表
-        """
-        # 使用新方法获取带标签的日记
-        return self.get_all_diaries_with_tags(limit)
     
     # 以下是与标签管理器的代理方法，以保持原有接口兼容
     def add_tag(self, name: str) -> Optional[Dict[str, Any]]:
@@ -563,6 +415,35 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
             包含标签的日记列表
         """
         return self.diary_content_service.get_all_diaries_with_tags(limit)
+
+    # ========================================================================
+    # 查看次数操作
+    # ========================================================================
+    
+    def increment_view_count(self, diary_id: int) -> Optional[int]:
+        """
+        增加日记查看次数
+        
+        Args:
+            diary_id: 日记ID
+        
+        Returns:
+            新的查看次数或None
+        """
+        return self.view_count_service.increment_view_count(diary_id)
+    
+    def decrease_view_count(self, diary_id: int, penalty: int = 1) -> bool:
+        """
+        减少日记查看次数
+        
+        Args:
+            diary_id: 日记ID
+            penalty: 减少的数量
+        
+        Returns:
+            是否操作成功
+        """
+        return self.view_count_service.decrease_view_count(diary_id, penalty)
 
     # ========================================================================
     # 统计功能
