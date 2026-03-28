@@ -15,9 +15,14 @@ import csv
 from .tag_manager import TagManager
 from .migration_backup_manager import MigrationBackupManager
 from .database_query_mixin import DatabaseQueryMixin
-from .statistics_service import StatisticsService
-from .view_count_service import ViewCountService
-from .diary_content_service import DiaryContentService
+
+# 导入服务模块 - 使用动态导入以避免循环依赖和相对导入问题
+def _import_services_lazily():
+    """延迟导入服务模块，避免相对导入问题"""
+    from services.statistics_service import StatisticsService
+    from services.view_count_service import ViewCountService
+    from services.diary_content_service import DiaryContentService
+    return StatisticsService, ViewCountService, DiaryContentService
 
 # 配置日志
 logging.basicConfig(
@@ -74,6 +79,7 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
         self.migration_backup_manager = MigrationBackupManager(self)
         
         # 初始化统计服务
+        StatisticsService, ViewCountService, DiaryContentService = _import_services_lazily()
         self.statistics_service = StatisticsService(self)
         
         # 初始化查看次数服务

@@ -14,7 +14,7 @@ sys.path.insert(0, current_dir)
 from views.main_window import MainWindow
 from utils.themes import apply_theme_to_app
 from models.enhanced_database import EnhancedDatabaseManager
-from config import get_db_path
+from config.config import get_db_path
 
 
 def main():
