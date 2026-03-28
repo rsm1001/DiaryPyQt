@@ -11,10 +11,13 @@ from contextlib import contextmanager
 import json
 import csv
 
-# 导入新的标签管理器、迁移备份管理器和查询混入模块
+# 导入新的标签管理器、迁移备份管理器、查询混入模块、统计服务模块和查看次数服务模块
 from .tag_manager import TagManager
 from .migration_backup_manager import MigrationBackupManager
 from .database_query_mixin import DatabaseQueryMixin
+from .statistics_service import StatisticsService
+from .view_count_service import ViewCountService
+from .diary_content_service import DiaryContentService
 
 # 配置日志
 logging.basicConfig(
@@ -51,6 +54,12 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
         self.tag_manager = None  # 稍后在初始化数据库之后创建
         # 创建迁移备份管理器实例
         self.migration_backup_manager = None  # 稍后在初始化数据库之后创建
+        # 创建统计服务实例
+        self.statistics_service = None  # 稍后在初始化数据库之后创建
+        # 创建查看次数服务实例
+        self.view_count_service = None  # 稍后在初始化数据库之后创建
+        # 创建日记内容服务实例
+        self.diary_content_service = None  # 稍后在初始化数据库之后创建
         
         # 确保目录存在
         self._ensure_directory()
@@ -64,6 +73,15 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
         # 初始化迁移备份管理器
         self.migration_backup_manager = MigrationBackupManager(self)
         
+        # 初始化统计服务
+        self.statistics_service = StatisticsService(self)
+        
+        # 初始化查看次数服务
+        self.view_count_service = ViewCountService(self)
+        
+        # 初始化日记内容服务
+        self.diary_content_service = DiaryContentService(self)
+        
         import os  # 在使用os之前重新导入，以避免作用域问题
         logger.info(f"EnhancedDatabaseManager初始化完成，数据库路径: {os.path.abspath(self.db_path)}")
     
@@ -74,10 +92,14 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
         Returns:
             日记列表
         """
-        return self._execute(
-            "SELECT * FROM diaries ORDER BY date ASC",
-            fetch='all'
-        ) or []
+        # 使用日记内容服务获取日记，然后添加标签信息
+        diaries = self.diary_content_service.get_all_diaries()
+        
+        # 对每篇日记获取完整的标签列表
+        for diary in diaries:
+            diary['tags'] = self.get_tags_by_diary_id(diary['id'])
+        
+        return diaries
     
     def get_diaries_with_limit(self, limit: int) -> List[Dict[str, Any]]:
         """
@@ -89,11 +111,7 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
         Returns:
             日记列表
         """
-        return self._execute(
-            "SELECT * FROM diaries ORDER BY date ASC LIMIT ?",
-            (limit,),
-            fetch='all'
-        ) or []
+        return self.diary_content_service.get_diaries_with_limit(limit)
 
     def _ensure_directory(self):
         """确保数据库目录存在"""
@@ -233,25 +251,7 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
         Returns:
             新创建的日记字典
         """
-        if not content or not content.strip():
-            logger.warning("尝试添加空日记内容")
-            return None
-        
-        date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        diary_id = self._execute(
-            "INSERT INTO diaries (date, content, view_count) VALUES (?, ?, ?)",
-            (date, content.strip(), 0)
-        )
-        
-        if diary_id:
-            logger.info(f"添加日记成功，ID: {diary_id}")
-            return {
-                'id': diary_id,
-                'date': date,
-                'content': content.strip(),
-                'view_count': 0
-            }
-        return None
+        return self.diary_content_service.add_diary(content)
     
     def get_diary_by_id(self, diary_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -263,11 +263,32 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
         Returns:
             日记字典或None
         """
-        return self._execute(
-            "SELECT * FROM diaries WHERE id = ?",
-            (diary_id,),
-            fetch='one'
-        )
+        return self.diary_content_service.get_diary_by_id(diary_id)
+    
+    def update_diary(self, diary_id: int, new_content: str) -> bool:
+        """
+        更新日记内容
+        
+        Args:
+            diary_id: 日记ID
+            new_content: 新内容
+        
+        Returns:
+            是否更新成功
+        """
+        return self.diary_content_service.update_diary(diary_id, new_content)
+    
+    def delete_diary_by_id(self, diary_id: int) -> Optional[Dict[str, Any]]:
+        """
+        根据ID删除日记
+        
+        Args:
+            diary_id: 日记ID
+        
+        Returns:
+            被删除的日记字典或None
+        """
+        return self.diary_content_service.delete_diary_by_id(diary_id)
     
     def update_diary(self, diary_id: int, new_content: str) -> bool:
         """
@@ -336,29 +357,7 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
         Returns:
             新的查看次数或None
         """
-        # 使用RETURNING子句获取更新后的值（SQLite 3.35.0+）
-        try:
-            result = self._execute(
-                "UPDATE diaries SET view_count = view_count + 1 WHERE id = ? RETURNING view_count",
-                (diary_id,),
-                fetch='one'
-            )
-            if result:
-                logger.debug(f"增加查看次数，ID: {diary_id}, 新次数: {result['view_count']}")
-                return result['view_count']
-        except sqlite3.Error:
-            # 如果RETURNING不支持，使用传统方式
-            self._execute(
-                "UPDATE diaries SET view_count = view_count + 1 WHERE id = ?",
-                (diary_id,)
-            )
-            result = self._execute(
-                "SELECT view_count FROM diaries WHERE id = ?",
-                (diary_id,),
-                fetch='one'
-            )
-            return result['view_count'] if result else None
-        return None
+        return self.view_count_service.increment_view_count(diary_id)
     
     def decrease_view_count(self, diary_id: int, penalty: int = 1) -> bool:
         """
@@ -371,16 +370,7 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
         Returns:
             是否操作成功
         """
-        rowcount = self._execute(
-            "UPDATE diaries SET view_count = MAX(0, view_count - ?) WHERE id = ?",
-            (penalty, diary_id),
-            fetch='rowcount'
-        )
-        
-        if rowcount > 0:
-            logger.info(f"减少查看次数，ID: {diary_id}, 减少: {penalty}")
-            return True
-        return False
+        return self.view_count_service.decrease_view_count(diary_id, penalty)
     
     def get_all_diaries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
@@ -566,28 +556,12 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
         Returns:
             包含标签的日记列表
         """
-        query = """
-        SELECT d.*, GROUP_CONCAT(t.name, ', ') as tag_names
-        FROM diaries d
-        LEFT JOIN diary_tags dt ON d.id = dt.diary_id
-        LEFT JOIN tags t ON dt.tag_id = t.id
-        GROUP BY d.id
-        ORDER BY d.date DESC
-        """
-        params = ()
-        
-        if limit:
-            query += " LIMIT ?"
-            params = (limit,)
-        
-        diaries = self._execute(query, params, fetch='all') or []
-        
-        # 对每篇日记获取完整的标签列表
-        for diary in diaries:
-            diary['tags'] = self.get_tags_by_diary_id(diary['id'])
-        
-        return diaries
+        return self.diary_content_service.get_all_diaries_with_tags(limit)
 
+    # ========================================================================
+    # 统计功能
+    # ========================================================================
+    
     def get_statistics(self) -> Dict[str, Any]:
         """
         获取统计信息
@@ -595,49 +569,7 @@ class EnhancedDatabaseManager(DatabaseQueryMixin):
         Returns:
             统计信息字典
         """
-        # 基础统计
-        stats = self._execute(
-            """
-            SELECT 
-                COUNT(*) as total,
-                COALESCE(SUM(view_count), 0) as total_views,
-                COALESCE(AVG(view_count), 0) as avg_views,
-                MAX(view_count) as max_views,
-                MIN(view_count) as min_views
-            FROM diaries
-            """,
-            fetch='one'
-        )
-        
-        if not stats or stats['total'] == 0:
-            return {
-                'total': 0,
-                'total_views': 0,
-                'avg_views': 0,
-                'most_viewed': None,
-                'least_viewed': None
-            }
-        
-        # 获取查看次数最多和最少的日记
-        most_viewed = self._execute(
-            "SELECT * FROM diaries WHERE view_count = ? ORDER BY date ASC LIMIT 1",
-            (stats['max_views'],),
-            fetch='one'
-        )
-        
-        least_viewed = self._execute(
-            "SELECT * FROM diaries WHERE view_count = ? ORDER BY date ASC LIMIT 1",
-            (stats['min_views'],),
-            fetch='one'
-        )
-        
-        return {
-            'total': stats['total'],
-            'total_views': stats['total_views'],
-            'avg_views': round(stats['avg_views'], 2),
-            'most_viewed': most_viewed,
-            'least_viewed': least_viewed
-        }
+        return self.statistics_service.get_statistics()
     
     # ========================================================================
     # 代理方法 - 迁移和备份功能
