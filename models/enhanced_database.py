@@ -451,16 +451,18 @@ class EnhancedDatabaseManager:
         Returns:
             日记字典或None
         """
-        from .weight_calculation_service import WeightCalculationService
+        from .diary_selection_service import DiarySelectionService
         
-        # 使用权重计算器获取加权随机日记
-        service = WeightCalculationService()
+        # 使用日记选择服务获取加权随机日记
+        service = DiarySelectionService()
         diaries = self.get_all_diaries() if limit is None else self.get_diaries_with_limit(limit)
         
         if not diaries:
             return None
         
-        return service.get_weighted_random_diary_from_data(diaries)
+        # 将SQL查询结果转换为字典格式的日记对象
+        diary_dicts = [dict(diary) for diary in diaries]
+        return service.get_weighted_random_diary(diary_dicts)
     
     def get_diary_for_deletion(self, limit: int = None) -> Optional[Dict[str, Any]]:
         """
@@ -473,16 +475,18 @@ class EnhancedDatabaseManager:
         Returns:
             日记字典或None
         """
-        from .weight_calculation_service import WeightCalculationService
+        from .diary_selection_service import DiarySelectionService
         
-        # 使用权重计算器获取加权删除日记
-        service = WeightCalculationService()
+        # 使用日记选择服务获取加权删除日记
+        service = DiarySelectionService()
         diaries = self.get_all_diaries() if limit is None else self.get_diaries_with_limit(limit)
         
         if not diaries:
             return None
         
-        return service.get_weighted_deletion_diary_from_data(diaries)
+        # 将SQL查询结果转换为字典格式的日记对象
+        diary_dicts = [dict(diary) for diary in diaries]
+        return service.get_weighted_deletion_diary(diary_dicts)
     
     def search_by_keyword(self, keyword: str, limit: int = 18) -> List[Dict[str, Any]]:
         """
