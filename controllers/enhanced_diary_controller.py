@@ -4,7 +4,7 @@
 """
 from typing import List, Dict, Optional
 from models.enhanced_database import get_enhanced_db_manager
-from models.diary import Diary
+from models.entities.diary import Diary
 
 
 class EnhancedDiaryController:

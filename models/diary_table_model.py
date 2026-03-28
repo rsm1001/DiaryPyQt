@@ -4,7 +4,7 @@
 """
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PyQt6.QtGui import QFont
-from models.diary import Diary
+from models.entities.diary import Diary
 
 
 class DiaryTableModel(QAbstractTableModel):

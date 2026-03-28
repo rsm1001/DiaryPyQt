@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
 from PyQt6.QtCore import Qt, QModelIndex, pyqtSignal, QTimer
 from PyQt6.QtGui import QAction, QIcon, QFont, QKeySequence
 
-from models.diary import Diary
+from models.entities.diary import Diary
 from models.diary_table_model import DiaryTableModel  # 导入解耦后的模型
 from controllers.enhanced_diary_controller import EnhancedDiaryController
 from utils.theme_utils import ThemeManager
