@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import List, Dict, Optional, Any, Tuple, Protocol
 
 from .weight_calculation_core import calculate_raw_weights
-from .normalization_strategies import NormalizationStrategyFactory
+from .strategies.weight.normalization_strategies import NormalizationStrategyFactory
 
 
 class DatabaseManagerInterface(Protocol):
