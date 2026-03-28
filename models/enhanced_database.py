@@ -22,13 +22,22 @@ logger = logging.getLogger(__name__)
 class EnhancedDatabaseManager:
     """增强版SQLite数据库管理器 - 包含完整的迁移和备份功能"""
     
-    def __init__(self, db_path: str = "DiaryServer/diary_data/diary.db"):
+    def __init__(self, db_path: str = None):
         """
         初始化数据库管理器
         
         Args:
             db_path: 数据库文件路径
         """
+        # 如果没有提供数据库路径，则使用默认的本地路径
+        if db_path is None:
+            import os
+            from pathlib import Path
+            # 使用项目根目录下的data文件夹
+            db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "diary.db")
+            # 确保目录存在
+            os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        
         self.db_path = db_path
         self._local = threading.local()
         self._lock = threading.RLock()
@@ -39,6 +48,7 @@ class EnhancedDatabaseManager:
         # 初始化数据库
         self._init_database()
         
+        import os  # 在使用os之前重新导入，以避免作用域问题
         logger.info(f"EnhancedDatabaseManager初始化完成，数据库路径: {os.path.abspath(self.db_path)}")
     
     def _ensure_directory(self):
@@ -1157,7 +1167,7 @@ class EnhancedDatabaseManager:
 _enhanced_db_manager = None
 
 
-def get_enhanced_db_manager(db_path: str = "DiaryServer/diary_data/diary.db") -> EnhancedDatabaseManager:
+def get_enhanced_db_manager(db_path: str = None) -> EnhancedDatabaseManager:
     """获取增强版数据库管理器单例"""
     global _enhanced_db_manager
     if _enhanced_db_manager is None:

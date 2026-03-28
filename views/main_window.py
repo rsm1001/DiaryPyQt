@@ -26,10 +26,6 @@ class MainWindow(QMainWindow):
     
     def __init__(self, db_path: str = None):
         super().__init__()
-        import os
-        if db_path is None:
-            # 使用项目目录中的数据文件夹
-            db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "diary.db")
         self.controller = EnhancedDiaryController(db_path)
         self.db_path = db_path
         self.current_theme = 'light'

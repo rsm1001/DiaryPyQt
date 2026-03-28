@@ -10,7 +10,7 @@ from models.diary import Diary
 class EnhancedDiaryController:
     """增强版日记业务逻辑控制器"""
     
-    def __init__(self, db_path: str = "DiaryServer/diary_data/diary.db"):
+    def __init__(self, db_path: str = None):
         self.db_manager = get_enhanced_db_manager(db_path)
     
     def add_diary(self, content: str) -> Optional[Diary]:

@@ -2,10 +2,13 @@
 配置管理
 """
 import os
+from models.db_config import get_db_config
 
 
 # 数据库配置
-DB_PATH = os.environ.get('DIARY_DB_PATH', 'DiaryServer/diary_data/diary.db')
+def get_db_path():
+    """获取数据库路径 - 优先使用环境变量，然后使用配置管理器"""
+    return os.environ.get('DIARY_DB_PATH', get_db_config().get_db_path())
 
 # 应用程序配置
 APP_NAME = "Diary Management System - PyQt Version"
