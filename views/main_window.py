@@ -17,7 +17,7 @@ from controllers.enhanced_diary_controller import EnhancedDiaryController
 from utils.theme_utils import ThemeManager
 from widgets.TagSelectorWidget import TagSelectorWidget
 from views.search_dialog import SearchDialog  # 导入解耦的搜索对话框
-from views.diary_dialogs import DiaryEditDialog, DiaryViewDialog  # 导入解耦的对话框
+from views.dialogs.diary_dialogs import DiaryEditDialog, DiaryViewDialog  # 导入解耦的对话框
 
 
 

@@ -6,9 +6,9 @@ import random
 from datetime import datetime
 from typing import List, Dict, Optional, Any, Tuple
 # 修正导入路径
-from .enhanced_database import EnhancedDatabaseManager
-from .weight_calculation_service import WeightCalculationService
-from .normalization_strategies import NormalizationStrategyFactory
+from models.enhanced_database import EnhancedDatabaseManager
+from models.weight_calculation_service import WeightCalculationService
+from models.normalization_strategies import NormalizationStrategyFactory
 
 
 class WeightCalculator:
