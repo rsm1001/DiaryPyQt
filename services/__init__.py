@@ -1,0 +1,1 @@
+# DiaryPyQt services package

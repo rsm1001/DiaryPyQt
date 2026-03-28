@@ -1,3 +1,1 @@
-"""
-views包 - 包含所有视图相关的模块
-"""
+# DiaryPyQt views package

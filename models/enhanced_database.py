@@ -21,7 +21,7 @@ def _import_services_lazily():
     """延迟导入服务模块，避免相对导入问题"""
     from services.statistics_service import StatisticsService
     from services.view_count_service import ViewCountService
-    from services.diary_content_service import DiaryContentService
+    from services.content_service import DiaryContentService
     return StatisticsService, ViewCountService, DiaryContentService
 
 # 配置日志

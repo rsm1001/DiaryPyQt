@@ -1,1 +1,1 @@
-# Diary Server PyQt Version
+# DiaryPyQt package init

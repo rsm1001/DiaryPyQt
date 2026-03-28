@@ -1,1 +1,1 @@
-# Controllers package
+# DiaryPyQt controllers package

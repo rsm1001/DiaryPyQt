@@ -12,7 +12,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
 from views.main_window import MainWindow
-from utils.themes import apply_theme_to_app
+from utils.theme_utils import apply_theme_to_app
 from models.enhanced_database import EnhancedDatabaseManager
 from config.config import get_db_path
 

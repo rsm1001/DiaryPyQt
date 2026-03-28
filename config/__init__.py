@@ -1,0 +1,1 @@
+# DiaryPyQt config package

@@ -1,1 +1,1 @@
-# Utils package
+# DiaryPyQt utils package

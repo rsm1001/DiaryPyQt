@@ -3,7 +3,7 @@
 处理业务逻辑，连接模型和视图
 """
 from typing import List, Dict, Optional
-from ..models.database import get_db_manager
+from ..models.database_manager import get_db_manager
 from ..models.diary import Diary
 
 
