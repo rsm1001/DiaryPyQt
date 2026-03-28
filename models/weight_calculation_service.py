@@ -6,7 +6,7 @@ import random
 from datetime import datetime
 from typing import List, Dict, Optional, Any, Tuple, Protocol
 
-from .weight_calculation_core import calculate_raw_weights
+from .calculations.weight_calculation_core import calculate_raw_weights
 from .strategies.weight.normalization_strategies import NormalizationStrategyFactory
 
 

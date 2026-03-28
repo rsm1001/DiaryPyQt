@@ -12,9 +12,9 @@ import json
 import csv
 
 # 导入新的标签管理混入类、迁移备份管理器、查询混入模块、统计服务模块和查看次数服务模块
-from .tag_management_mixin import TagManagementMixin
+from .mixins.tag_management_mixin import TagManagementMixin
 from .migration_backup_manager import MigrationBackupManager
-from .database_query_mixin import DatabaseQueryMixin
+from .mixins.database_query_mixin import DatabaseQueryMixin
 from .repository.diary_operations import DiaryOperationsMixin
 
 # 导入服务模块 - 使用动态导入以避免循环依赖和相对导入问题

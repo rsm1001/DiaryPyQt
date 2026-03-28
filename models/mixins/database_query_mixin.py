@@ -89,7 +89,7 @@ class DatabaseQueryMixin:
         Returns:
             日记字典或None
         """
-        from .diary_selection_service import DiarySelectionService
+        from ..diary_selection_service import DiarySelectionService
         
         # 使用日记选择服务获取加权随机日记
         service = DiarySelectionService()
@@ -113,7 +113,7 @@ class DatabaseQueryMixin:
         Returns:
             日记字典或None
         """
-        from .diary_selection_service import DiarySelectionService
+        from ..diary_selection_service import DiarySelectionService
         
         # 使用日记选择服务获取加权删除日记
         service = DiarySelectionService()
