@@ -10,6 +10,10 @@ from datetime import datetime
 from typing import List, Dict, Optional, Any, Tuple
 from contextlib import contextmanager
 
+# 导入数据迁移混入类和统计混入类
+from .data_migration_mixin import DataMigrationMixin
+from .statistics_mixin import StatisticsMixin
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -18,7 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class DatabaseManager:
+class DatabaseManager(DataMigrationMixin, StatisticsMixin):
     """PyQt版SQLite数据库管理器 - 高性能线程安全版本"""
     
     def __init__(self, db_path: str = "DiaryServer/diary_data/diary.db"):
@@ -438,136 +442,6 @@ class DatabaseManager:
     # 统计操作
     # ========================================================================
     
-    def get_statistics(self) -> Dict[str, Any]:
-        """
-        获取统计信息
-        
-        Returns:
-            统计信息字典
-        """
-        # 基础统计
-        stats = self._execute(
-            """
-            SELECT 
-                COUNT(*) as total,
-                COALESCE(SUM(view_count), 0) as total_views,
-                COALESCE(AVG(view_count), 0) as avg_views,
-                MAX(view_count) as max_views,
-                MIN(view_count) as min_views
-            FROM diaries
-            """,
-            fetch='one'
-        )
-        
-        if not stats or stats['total'] == 0:
-            return {
-                'total': 0,
-                'total_views': 0,
-                'total_views': 0,
-                'avg_views': 0,
-                'most_viewed': None,
-                'least_viewed': None
-            }
-        
-        # 获取查看次数最多和最少的日记
-        most_viewed = self._execute(
-            "SELECT * FROM diaries WHERE view_count = ? ORDER BY date ASC LIMIT 1",
-            (stats['max_views'],),
-            fetch='one'
-        )
-        
-        least_viewed = self._execute(
-            "SELECT * FROM diaries WHERE view_count = ? ORDER BY date ASC LIMIT 1",
-            (stats['min_views'],),
-            fetch='one'
-        )
-        
-        return {
-            'total': stats['total'],
-            'total_views': stats['total_views'],
-            'avg_views': round(stats['avg_views'], 2),
-            'most_viewed': most_viewed,
-            'least_viewed': least_viewed
-        }
-    
-    # ========================================================================
-    # 数据迁移
-    # ========================================================================
-    
-    def migrate_from_json(self, json_file_path: str) -> int:
-        """
-        从JSON文件迁移数据到SQLite
-        
-        Args:
-            json_file_path: JSON文件路径
-        
-        Returns:
-            迁移的日记数量
-        """
-        import json
-        
-        if not os.path.exists(json_file_path):
-            logger.warning(f"JSON文件不存在: {json_file_path}")
-            return 0
-        
-        try:
-            with open(json_file_path, 'r', encoding='utf-8') as f:
-                json_data = json.load(f)
-            
-            if not json_data:
-                return 0
-            
-            count = 0
-            with self._transaction() as cursor:
-                for diary in json_data:
-                    try:
-                        cursor.execute(
-                            """
-                            INSERT OR IGNORE INTO diaries (id, date, content, view_count) 
-                            VALUES (?, ?, ?, ?)
-                            """,
-                            (diary.get('id'), diary.get('date'), 
-                             diary.get('content'), diary.get('view_count', 0))
-                        )
-                        if cursor.rowcount > 0:
-                            count += 1
-                    except sqlite3.Error as e:
-                        logger.warning(f"迁移日记失败: {e}")
-            
-            logger.info(f"从JSON迁移了 {count} 篇日记")
-            return count
-            
-        except Exception as e:
-            logger.error(f"迁移数据时出错: {e}")
-            return 0
-    
-    def export_to_json(self, json_file_path: str) -> bool:
-        """
-        导出数据到JSON文件
-        
-        Args:
-            json_file_path: JSON文件路径
-        
-        Returns:
-            是否导出成功
-        """
-        import json
-        
-        try:
-            diaries = self.get_all_diaries()
-            
-            # 确保目录存在
-            os.makedirs(os.path.dirname(json_file_path) or '.', exist_ok=True)
-            
-            with open(json_file_path, 'w', encoding='utf-8') as f:
-                json.dump(diaries, f, ensure_ascii=False, indent=2)
-            
-            logger.info(f"导出 {len(diaries)} 篇日记到 {json_file_path}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"导出数据时出错: {e}")
-            return False
     
     def close(self):
         """关闭数据库连接"""
