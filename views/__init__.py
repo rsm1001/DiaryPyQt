@@ -1,1 +1,3 @@
-# Views package
+"""
+views包 - 包含所有视图相关的模块
+"""
