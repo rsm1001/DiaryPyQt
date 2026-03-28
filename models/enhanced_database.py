@@ -11,8 +11,8 @@ from contextlib import contextmanager
 import json
 import csv
 
-# 导入新的标签管理器、迁移备份管理器、查询混入模块、统计服务模块和查看次数服务模块
-from .tag_manager import TagManager
+# 导入新的标签管理混入类、迁移备份管理器、查询混入模块、统计服务模块和查看次数服务模块
+from .tag_management_mixin import TagManagementMixin
 from .migration_backup_manager import MigrationBackupManager
 from .database_query_mixin import DatabaseQueryMixin
 from .repository.diary_operations import DiaryOperationsMixin
@@ -33,7 +33,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class EnhancedDatabaseManager(DatabaseQueryMixin, DiaryOperationsMixin):
+class EnhancedDatabaseManager(TagManagementMixin, DatabaseQueryMixin, DiaryOperationsMixin):
     """增强版SQLite数据库管理器 - 包含完整的迁移和备份功能"""
     
     def __init__(self, db_path: str = None):
@@ -56,8 +56,6 @@ class EnhancedDatabaseManager(DatabaseQueryMixin, DiaryOperationsMixin):
         self._local = threading.local()
         self._lock = threading.RLock()
         
-        # 创建标签管理器实例
-        self.tag_manager = None  # 稍后在初始化数据库之后创建
         # 创建迁移备份管理器实例
         self.migration_backup_manager = None  # 稍后在初始化数据库之后创建
         # 创建统计服务实例
@@ -72,9 +70,6 @@ class EnhancedDatabaseManager(DatabaseQueryMixin, DiaryOperationsMixin):
         
         # 初始化数据库
         self._init_database()
-        
-        # 初始化标签管理器
-        self.tag_manager = TagManager(self)
         
         # 初始化迁移备份管理器
         self.migration_backup_manager = MigrationBackupManager(self)
@@ -243,178 +238,7 @@ class EnhancedDatabaseManager(DatabaseQueryMixin, DiaryOperationsMixin):
     # 日记CRUD操作
     # ========================================================================
     
-    # 以下是与标签管理器的代理方法，以保持原有接口兼容
-    def add_tag(self, name: str) -> Optional[Dict[str, Any]]:
-        """
-        添加新标签
-        
-        Args:
-            name: 标签名称
-        
-        Returns:
-            新创建的标签字典或None
-        """
-        return self.tag_manager.add_tag(name)
-    
-    def get_tag_by_id(self, tag_id: int) -> Optional[Dict[str, Any]]:
-        """
-        根据ID获取标签
-        
-        Args:
-            tag_id: 标签ID
-        
-        Returns:
-            标签字典或None
-        """
-        return self.tag_manager.get_tag_by_id(tag_id)
-    
-    def get_tag_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        """
-        根据名称获取标签
-        
-        Args:
-            name: 标签名
-        
-        Returns:
-            标签字典或None
-        """
-        return self.tag_manager.get_tag_by_name(name)
-    
-    def get_all_tags(self) -> List[Dict[str, Any]]:
-        """
-        获取所有标签
-        
-        Returns:
-            标签列表
-        """
-        return self.tag_manager.get_all_tags()
-    
-    def update_tag(self, tag_id: int, new_name: str) -> bool:
-        """
-        更新标签名称
-        
-        Args:
-            tag_id: 标签ID
-            new_name: 新名称
-        
-        Returns:
-            是否更新成功
-        """
-        return self.tag_manager.update_tag(tag_id, new_name)
-    
-    def delete_tag_by_id(self, tag_id: int) -> bool:
-        """
-        根据ID删除标签（仅在没有日记使用该标签的前提下）
-        
-        Args:
-            tag_id: 标签ID
-        
-        Returns:
-            是否删除成功
-        """
-        return self.tag_manager.delete_tag_by_id(tag_id)
-    
-    def get_unused_tags(self) -> List[Dict[str, Any]]:
-        """
-        获取未被使用的标签（没有日记关联的标签）
-        
-        Returns:
-            未被使用的标签列表
-        """
-        return self.tag_manager.get_unused_tags()
-    
-    def add_diary_tag(self, diary_id: int, tag_id: int) -> bool:
-        """
-        为日记添加标签
-        
-        Args:
-            diary_id: 日记ID
-            tag_id: 标签ID
-        
-        Returns:
-            是否添加成功
-        """
-        return self.tag_manager.add_diary_tag(diary_id, tag_id)
-    
-    def remove_diary_tag(self, diary_id: int, tag_id: int) -> bool:
-        """
-        移除日记的特定标签
-        
-        Args:
-            diary_id: 日记ID
-            tag_id: 标签ID
-        
-        Returns:
-            是否移除成功
-        """
-        return self.tag_manager.remove_diary_tag(diary_id, tag_id)
-    
-    def get_tags_by_diary_id(self, diary_id: int) -> List[Dict[str, Any]]:
-        """
-        获取某篇日记的所有标签
-        
-        Args:
-            diary_id: 日记ID
-        
-        Returns:
-            标签列表
-        """
-        return self.tag_manager.get_tags_by_diary_id(diary_id)
-    
-    def get_diaries_by_tag_id(self, tag_id: int) -> List[Dict[str, Any]]:
-        """
-        获取标记了特定标签的所有日记
-        
-        Args:
-            tag_id: 标签ID
-        
-        Returns:
-            日记列表
-        """
-        return self.tag_manager.get_diaries_by_tag_id(tag_id)
-    
-    def assign_tags_to_diary(self, diary_id: int, tag_ids: List[int]) -> bool:
-        """
-        为日记分配一组标签（替换原有标签）
-        
-        Args:
-            diary_id: 日记ID
-            tag_ids: 标签ID列表
-        
-        Returns:
-            是否分配成功
-        """
-        return self.tag_manager.assign_tags_to_diary(diary_id, tag_ids)
-    
-    def get_diary_with_tags_by_id(self, diary_id: int) -> Optional[Dict[str, Any]]:
-        """
-        获取日记及其所有标签
-        
-        Args:
-            diary_id: 日记ID
-        
-        Returns:
-            包含标签的日记字典
-        """
-        diary = self.get_diary_by_id(diary_id)
-        if not diary:
-            return None
-        
-        tags = self.get_tags_by_diary_id(diary_id)
-        diary['tags'] = tags
-        return diary
-    
-    def get_all_diaries_with_tags(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
-        """
-        获取所有日记及其标签
-        
-        Args:
-            limit: 限制数量
-        
-        Returns:
-            包含标签的日记列表
-        """
-        return self.diary_content_service.get_all_diaries_with_tags(limit)
+
 
     # ========================================================================
     # 查看次数操作
