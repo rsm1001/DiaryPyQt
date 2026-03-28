@@ -11,6 +11,9 @@ from contextlib import contextmanager
 import json
 import csv
 
+# 导入新的标签管理器
+from .tag_manager import TagManager
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -42,11 +45,17 @@ class EnhancedDatabaseManager:
         self._local = threading.local()
         self._lock = threading.RLock()
         
+        # 创建标签管理器实例
+        self.tag_manager = None  # 稍后在初始化数据库之后创建
+        
         # 确保目录存在
         self._ensure_directory()
         
         # 初始化数据库
         self._init_database()
+        
+        # 初始化标签管理器
+        self.tag_manager = TagManager(self)
         
         import os  # 在使用os之前重新导入，以避免作用域问题
         logger.info(f"EnhancedDatabaseManager初始化完成，数据库路径: {os.path.abspath(self.db_path)}")
@@ -513,10 +522,7 @@ class EnhancedDatabaseManager:
             fetch='all'
         ) or []
     
-    # ========================================================================
-    # 标签操作
-    # ========================================================================
-    
+    # 以下是与标签管理器的代理方法，以保持原有接口兼容
     def add_tag(self, name: str) -> Optional[Dict[str, Any]]:
         """
         添加新标签
@@ -527,27 +533,7 @@ class EnhancedDatabaseManager:
         Returns:
             新创建的标签字典或None
         """
-        if not name or not name.strip():
-            logger.warning("尝试添加空标签名")
-            return None
-            
-        try:
-            tag_id = self._execute(
-                "INSERT INTO tags (name) VALUES (?)",
-                (name.strip(),)
-            )
-            
-            if tag_id:
-                logger.info(f"添加标签成功，ID: {tag_id}, 名称: {name}")
-                return {
-                    'id': tag_id,
-                    'name': name.strip(),
-                    'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-            return None
-        except sqlite3.IntegrityError:
-            logger.warning(f"标签已存在: {name}")
-            return None
+        return self.tag_manager.add_tag(name)
     
     def get_tag_by_id(self, tag_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -559,11 +545,7 @@ class EnhancedDatabaseManager:
         Returns:
             标签字典或None
         """
-        return self._execute(
-            "SELECT * FROM tags WHERE id = ?",
-            (tag_id,),
-            fetch='one'
-        )
+        return self.tag_manager.get_tag_by_id(tag_id)
     
     def get_tag_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """
@@ -575,11 +557,7 @@ class EnhancedDatabaseManager:
         Returns:
             标签字典或None
         """
-        return self._execute(
-            "SELECT * FROM tags WHERE name = ?",
-            (name,),
-            fetch='one'
-        )
+        return self.tag_manager.get_tag_by_name(name)
     
     def get_all_tags(self) -> List[Dict[str, Any]]:
         """
@@ -588,10 +566,7 @@ class EnhancedDatabaseManager:
         Returns:
             标签列表
         """
-        return self._execute(
-            "SELECT * FROM tags ORDER BY name ASC",
-            fetch='all'
-        ) or []
+        return self.tag_manager.get_all_tags()
     
     def update_tag(self, tag_id: int, new_name: str) -> bool:
         """
@@ -604,25 +579,7 @@ class EnhancedDatabaseManager:
         Returns:
             是否更新成功
         """
-        if not new_name or not new_name.strip():
-            logger.warning("尝试更新为空标签名")
-            return False
-            
-        try:
-            rowcount = self._execute(
-                "UPDATE tags SET name = ? WHERE id = ?",
-                (new_name.strip(), tag_id),
-                fetch='rowcount'
-            )
-            
-            if rowcount > 0:
-                logger.info(f"更新标签成功，ID: {tag_id}")
-                return True
-            logger.warning(f"更新标签失败，ID: {tag_id} 不存在")
-            return False
-        except sqlite3.IntegrityError:
-            logger.warning(f"标签名已存在: {new_name}")
-            return False
+        return self.tag_manager.update_tag(tag_id, new_name)
     
     def delete_tag_by_id(self, tag_id: int) -> bool:
         """
@@ -634,29 +591,7 @@ class EnhancedDatabaseManager:
         Returns:
             是否删除成功
         """
-        # 检查是否有日记关联到此标签
-        usage = self._execute(
-            "SELECT COUNT(*) as count FROM diary_tags WHERE tag_id = ?",
-            (tag_id,),
-            fetch='one'
-        )
-        
-        if usage and usage['count'] > 0:
-            logger.warning(f"删除标签失败，标签ID: {tag_id} 正被 {usage['count']} 篇日记使用")
-            return False
-        
-        # 删除标签
-        rowcount = self._execute(
-            "DELETE FROM tags WHERE id = ?",
-            (tag_id,),
-            fetch='rowcount'
-        )
-        
-        if rowcount > 0:
-            logger.info(f"删除标签成功，ID: {tag_id}")
-            return True
-        logger.warning(f"删除标签失败，ID: {tag_id} 不存在")
-        return False
+        return self.tag_manager.delete_tag_by_id(tag_id)
     
     def get_unused_tags(self) -> List[Dict[str, Any]]:
         """
@@ -665,20 +600,7 @@ class EnhancedDatabaseManager:
         Returns:
             未被使用的标签列表
         """
-        return self._execute(
-            """
-            SELECT t.* 
-            FROM tags t 
-            LEFT JOIN diary_tags dt ON t.id = dt.tag_id 
-            WHERE dt.tag_id IS NULL
-            ORDER BY t.name ASC
-            """,
-            fetch='all'
-        ) or []
-    
-    # ========================================================================
-    # 日记-标签关联操作
-    # ========================================================================
+        return self.tag_manager.get_unused_tags()
     
     def add_diary_tag(self, diary_id: int, tag_id: int) -> bool:
         """
@@ -691,24 +613,7 @@ class EnhancedDatabaseManager:
         Returns:
             是否添加成功
         """
-        # 首先检查日记和标签是否存在
-        diary = self.get_diary_by_id(diary_id)
-        tag = self.get_tag_by_id(tag_id)
-        
-        if not diary or not tag:
-            logger.warning(f"日记或标签不存在: diary_id={diary_id}, tag_id={tag_id}")
-            return False
-        
-        try:
-            self._execute(
-                "INSERT INTO diary_tags (diary_id, tag_id) VALUES (?, ?)",
-                (diary_id, tag_id)
-            )
-            logger.info(f"日记-标签关联成功，diary_id: {diary_id}, tag_id: {tag_id}")
-            return True
-        except sqlite3.IntegrityError:
-            logger.warning(f"日记-标签关联已存在: diary_id={diary_id}, tag_id={tag_id}")
-            return False
+        return self.tag_manager.add_diary_tag(diary_id, tag_id)
     
     def remove_diary_tag(self, diary_id: int, tag_id: int) -> bool:
         """
@@ -721,17 +626,7 @@ class EnhancedDatabaseManager:
         Returns:
             是否移除成功
         """
-        rowcount = self._execute(
-            "DELETE FROM diary_tags WHERE diary_id = ? AND tag_id = ?",
-            (diary_id, tag_id),
-            fetch='rowcount'
-        )
-        
-        if rowcount > 0:
-            logger.info(f"移除日记-标签关联成功，diary_id: {diary_id}, tag_id: {tag_id}")
-            return True
-        logger.info(f"日记-标签关联不存在，无需移除，diary_id: {diary_id}, tag_id: {tag_id}")
-        return False
+        return self.tag_manager.remove_diary_tag(diary_id, tag_id)
     
     def get_tags_by_diary_id(self, diary_id: int) -> List[Dict[str, Any]]:
         """
@@ -743,17 +638,7 @@ class EnhancedDatabaseManager:
         Returns:
             标签列表
         """
-        return self._execute(
-            """
-            SELECT t.* 
-            FROM tags t 
-            INNER JOIN diary_tags dt ON t.id = dt.tag_id 
-            WHERE dt.diary_id = ?
-            ORDER BY t.name ASC
-            """,
-            (diary_id,),
-            fetch='all'
-        ) or []
+        return self.tag_manager.get_tags_by_diary_id(diary_id)
     
     def get_diaries_by_tag_id(self, tag_id: int) -> List[Dict[str, Any]]:
         """
@@ -765,17 +650,20 @@ class EnhancedDatabaseManager:
         Returns:
             日记列表
         """
-        return self._execute(
-            """
-            SELECT d.* 
-            FROM diaries d 
-            INNER JOIN diary_tags dt ON d.id = dt.diary_id 
-            WHERE dt.tag_id = ?
-            ORDER BY d.date DESC
-            """,
-            (tag_id,),
-            fetch='all'
-        ) or []
+        return self.tag_manager.get_diaries_by_tag_id(tag_id)
+    
+    def assign_tags_to_diary(self, diary_id: int, tag_ids: List[int]) -> bool:
+        """
+        为日记分配一组标签（替换原有标签）
+        
+        Args:
+            diary_id: 日记ID
+            tag_ids: 标签ID列表
+        
+        Returns:
+            是否分配成功
+        """
+        return self.tag_manager.assign_tags_to_diary(diary_id, tag_ids)
     
     def get_diary_with_tags_by_id(self, diary_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -826,42 +714,7 @@ class EnhancedDatabaseManager:
             diary['tags'] = self.get_tags_by_diary_id(diary['id'])
         
         return diaries
-    
-    def assign_tags_to_diary(self, diary_id: int, tag_ids: List[int]) -> bool:
-        """
-        为日记分配一组标签（替换原有标签）
-        
-        Args:
-            diary_id: 日记ID
-            tag_ids: 标签ID列表
-        
-        Returns:
-            是否分配成功
-        """
-        # 检查日记是否存在
-        if not self.get_diary_by_id(diary_id):
-            logger.warning(f"日记不存在: {diary_id}")
-            return False
-        
-        # 先移除该日记的所有标签
-        self._execute(
-            "DELETE FROM diary_tags WHERE diary_id = ?",
-            (diary_id,)
-        )
-        
-        # 添加新的标签关联
-        success = True
-        for tag_id in tag_ids:
-            if not self.add_diary_tag(diary_id, tag_id):
-                success = False
-        
-        if success:
-            logger.info(f"为日记分配标签成功，diary_id: {diary_id}, tag_ids: {tag_ids}")
-        else:
-            logger.warning(f"为日记分配标签部分失败，diary_id: {diary_id}, tag_ids: {tag_ids}")
-        
-        return success
-    
+
     def get_statistics(self) -> Dict[str, Any]:
         """
         获取统计信息
