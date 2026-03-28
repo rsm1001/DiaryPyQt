@@ -11,8 +11,9 @@ from contextlib import contextmanager
 import json
 import csv
 
-# 导入新的标签管理器
+# 导入新的标签管理器和迁移备份管理器
 from .tag_manager import TagManager
+from .migration_backup_manager import MigrationBackupManager
 
 # 配置日志
 logging.basicConfig(
@@ -47,6 +48,8 @@ class EnhancedDatabaseManager:
         
         # 创建标签管理器实例
         self.tag_manager = None  # 稍后在初始化数据库之后创建
+        # 创建迁移备份管理器实例
+        self.migration_backup_manager = None  # 稍后在初始化数据库之后创建
         
         # 确保目录存在
         self._ensure_directory()
@@ -56,6 +59,9 @@ class EnhancedDatabaseManager:
         
         # 初始化标签管理器
         self.tag_manager = TagManager(self)
+        
+        # 初始化迁移备份管理器
+        self.migration_backup_manager = MigrationBackupManager(self)
         
         import os  # 在使用os之前重新导入，以避免作用域问题
         logger.info(f"EnhancedDatabaseManager初始化完成，数据库路径: {os.path.abspath(self.db_path)}")
@@ -767,12 +773,12 @@ class EnhancedDatabaseManager:
         }
     
     # ========================================================================
-    # 数据迁移和备份功能
+    # 代理方法 - 迁移和备份功能
     # ========================================================================
     
     def migrate_from_json(self, json_file_path: str) -> int:
         """
-        从JSON文件迁移数据到SQLite
+        从JSON文件迁移数据到SQLite（代理方法）
         
         Args:
             json_file_path: JSON文件路径
@@ -780,63 +786,11 @@ class EnhancedDatabaseManager:
         Returns:
             迁移的日记数量
         """
-        if not os.path.exists(json_file_path):
-            logger.warning(f"JSON文件不存在: {json_file_path}")
-            return 0
-        
-        try:
-            with open(json_file_path, 'r', encoding='utf-8') as f:
-                json_data = json.load(f)
-            
-            if not json_data:
-                return 0
-            
-            count = 0
-            with self._transaction() as cursor:
-                for diary in json_data:
-                    try:
-                        # 检查是否已存在相同ID的日记
-                        cursor.execute("SELECT id FROM diaries WHERE id = ?", (diary.get('id'),))
-                        existing = cursor.fetchone()
-                        
-                        if not existing:
-                            # 插入新日记
-                            cursor.execute(
-                                """
-                                INSERT INTO diaries (id, date, content, view_count) 
-                                VALUES (?, ?, ?, ?)
-                                """,
-                                (diary.get('id'), diary.get('date'), 
-                                 diary.get('content'), diary.get('view_count', 0))
-                            )
-                            if cursor.rowcount > 0:
-                                count += 1
-                        else:
-                            # 如果存在，则更新
-                            cursor.execute(
-                                """
-                                UPDATE diaries 
-                                SET date = ?, content = ?, view_count = ? 
-                                WHERE id = ?
-                                """,
-                                (diary.get('date'), diary.get('content'), 
-                                 diary.get('view_count', 0), diary.get('id'))
-                            )
-                            if cursor.rowcount > 0:
-                                count += 1
-                    except sqlite3.Error as e:
-                        logger.warning(f"迁移日记失败: {e}, 日记ID: {diary.get('id')}")
-            
-            logger.info(f"从JSON迁移了 {count} 篇日记")
-            return count
-            
-        except Exception as e:
-            logger.error(f"迁移数据时出错: {e}")
-            return 0
-
+        return self.migration_backup_manager.migrate_from_json(json_file_path)
+    
     def migrate_from_csv(self, csv_file_path: str) -> int:
         """
-        从CSV文件迁移数据到SQLite
+        从CSV文件迁移数据到SQLite（代理方法）
         
         Args:
             csv_file_path: CSV文件路径
@@ -844,52 +798,11 @@ class EnhancedDatabaseManager:
         Returns:
             迁移的日记数量
         """
-        if not os.path.exists(csv_file_path):
-            logger.warning(f"CSV文件不存在: {csv_file_path}")
-            return 0
-        
-        try:
-            count = 0
-            with open(csv_file_path, 'r', encoding='utf-8', newline='') as csvfile:
-                reader = csv.DictReader(csvfile)
-                
-                with self._transaction() as cursor:
-                    for row in reader:
-                        try:
-                            # 检查是否已存在相同ID的日记
-                            diary_id = int(row.get('id', 0)) if row.get('id', '').isdigit() else 0
-                            
-                            if diary_id > 0:
-                                cursor.execute("SELECT id FROM diaries WHERE id = ?", (diary_id,))
-                                existing = cursor.fetchone()
-                                
-                                if not existing:
-                                    # 插入新日记
-                                    cursor.execute(
-                                        """
-                                        INSERT INTO diaries (id, date, content, view_count) 
-                                        VALUES (?, ?, ?, ?)
-                                        """,
-                                        (diary_id, 
-                                         row.get('date', datetime.now().strftime("%Y-%m-%d %H:%M:%S")), 
-                                         row.get('content', ''), 
-                                         int(row.get('view_count', 0)))
-                                    )
-                                    if cursor.rowcount > 0:
-                                        count += 1
-                        except Exception as e:
-                            logger.warning(f"迁移CSV行失败: {e}, 行数据: {row}")
-            
-            logger.info(f"从CSV迁移了 {count} 篇日记")
-            return count
-            
-        except Exception as e:
-            logger.error(f"迁移CSV数据时出错: {e}")
-            return 0
+        return self.migration_backup_manager.migrate_from_csv(csv_file_path)
     
     def export_to_json(self, json_file_path: str) -> bool:
         """
-        导出数据到JSON文件
+        导出数据到JSON文件（代理方法）
         
         Args:
             json_file_path: JSON文件路径
@@ -897,25 +810,11 @@ class EnhancedDatabaseManager:
         Returns:
             是否导出成功
         """
-        try:
-            diaries = self.get_all_diaries()
-            
-            # 确保目录存在
-            os.makedirs(os.path.dirname(json_file_path) or '.', exist_ok=True)
-            
-            with open(json_file_path, 'w', encoding='utf-8') as f:
-                json.dump(diaries, f, ensure_ascii=False, indent=2)
-            
-            logger.info(f"导出 {len(diaries)} 篇日记到 {json_file_path}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"导出数据时出错: {e}")
-            return False
+        return self.migration_backup_manager.export_to_json(json_file_path)
     
     def export_to_csv(self, csv_file_path: str) -> bool:
         """
-        导出数据到CSV文件
+        导出数据到CSV文件（代理方法）
         
         Args:
             csv_file_path: CSV文件路径
@@ -923,30 +822,11 @@ class EnhancedDatabaseManager:
         Returns:
             是否导出成功
         """
-        try:
-            diaries = self.get_all_diaries()
-            
-            # 确保目录存在
-            os.makedirs(os.path.dirname(csv_file_path) or '.', exist_ok=True)
-            
-            with open(csv_file_path, 'w', encoding='utf-8', newline='') as csvfile:
-                fieldnames = ['id', 'date', 'content', 'view_count']
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                
-                writer.writeheader()
-                for diary in diaries:
-                    writer.writerow(diary)
-            
-            logger.info(f"导出 {len(diaries)} 篇日记到 {csv_file_path}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"导出CSV数据时出错: {e}")
-            return False
-
+        return self.migration_backup_manager.export_to_csv(csv_file_path)
+    
     def backup_database(self, backup_path: str) -> bool:
         """
-        备份整个数据库
+        备份整个数据库（代理方法）
         
         Args:
             backup_path: 备份文件路径
@@ -954,26 +834,11 @@ class EnhancedDatabaseManager:
         Returns:
             是否备份成功
         """
-        try:
-            # 确保目录存在
-            os.makedirs(os.path.dirname(backup_path) or '.', exist_ok=True)
-            
-            # 使用SQLite的备份API
-            source_conn = self._get_connection()
-            backup_conn = sqlite3.connect(backup_path)
-            
-            source_conn.backup(backup_conn)
-            backup_conn.close()
-            
-            logger.info(f"数据库备份成功: {backup_path}")
-            return True
-        except Exception as e:
-            logger.error(f"数据库备份失败: {e}")
-            return False
-
+        return self.migration_backup_manager.backup_database(backup_path)
+    
     def restore_database(self, backup_path: str) -> bool:
         """
-        从备份恢复数据库
+        从备份恢复数据库（代理方法）
         
         Args:
             backup_path: 备份文件路径
@@ -981,50 +846,16 @@ class EnhancedDatabaseManager:
         Returns:
             是否恢复成功
         """
-        if not os.path.exists(backup_path):
-            logger.error(f"备份文件不存在: {backup_path}")
-            return False
-        
-        try:
-            # 关闭当前连接
-            self.close()
-            
-            # 复制备份文件到目标位置
-            import shutil
-            shutil.copy2(backup_path, self.db_path)
-            
-            # 重新初始化连接
-            self._local.connection = None
-            self._init_database()
-            
-            logger.info(f"数据库恢复成功: {backup_path} -> {self.db_path}")
-            return True
-        except Exception as e:
-            logger.error(f"数据库恢复失败: {e}")
-            return False
-
+        return self.migration_backup_manager.restore_database(backup_path)
+    
     def validate_database_integrity(self) -> bool:
         """
-        验证数据库完整性
+        验证数据库完整性（代理方法）
         
         Returns:
             数据库是否完整有效
         """
-        try:
-            conn = self._get_connection()
-            cursor = conn.cursor()
-            
-            # 执行SQLite内置的完整性检查
-            cursor.execute("PRAGMA integrity_check")
-            result = cursor.fetchone()
-            
-            is_valid = result[0].lower() == 'ok'
-            logger.info(f"数据库完整性检查: {'通过' if is_valid else '失败'}")
-            
-            return is_valid
-        except Exception as e:
-            logger.error(f"数据库完整性检查出错: {e}")
-            return False
+        return self.migration_backup_manager.validate_database_integrity()
 
     def close(self):
         """关闭数据库连接"""
