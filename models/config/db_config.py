@@ -18,8 +18,8 @@ class DatabaseConfig:
     
     def _get_default_db_path(self) -> str:
         """获取默认数据库路径"""
-        # 获取项目根目录
-        project_root = Path(__file__).parent.parent
+        # 获取项目根目录（向上三级到达项目根目录）
+        project_root = Path(__file__).parent.parent.parent
         # 使用项目根目录下的data文件夹
         default_path = project_root / "data" / "diary.db"
         # 确保目录存在

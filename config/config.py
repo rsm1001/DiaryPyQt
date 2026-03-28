@@ -2,7 +2,7 @@
 配置管理
 """
 import os
-from models.db_config import get_db_config
+from models.config.db_config import get_db_config
 
 
 # 数据库配置
