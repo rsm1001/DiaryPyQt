@@ -11,9 +11,10 @@ from contextlib import contextmanager
 import json
 import csv
 
-# 导入新的标签管理器和迁移备份管理器
+# 导入新的标签管理器、迁移备份管理器和查询混入模块
 from .tag_manager import TagManager
 from .migration_backup_manager import MigrationBackupManager
+from .database_query_mixin import DatabaseQueryMixin
 
 # 配置日志
 logging.basicConfig(
@@ -23,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class EnhancedDatabaseManager:
+class EnhancedDatabaseManager(DatabaseQueryMixin):
     """增强版SQLite数据库管理器 - 包含完整的迁移和备份功能"""
     
     def __init__(self, db_path: str = None):
@@ -381,10 +382,6 @@ class EnhancedDatabaseManager:
             return True
         return False
     
-    # ========================================================================
-    # 查询操作
-    # ========================================================================
-    
     def get_all_diaries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         获取所有日记（按日期倒序）
@@ -397,136 +394,6 @@ class EnhancedDatabaseManager:
         """
         # 使用新方法获取带标签的日记
         return self.get_all_diaries_with_tags(limit)
-    
-    def get_most_viewed_diaries(self, limit: int = 20) -> List[Dict[str, Any]]:
-        """
-        获取查看次数最多的日记
-        
-        Args:
-            limit: 限制数量
-        
-        Returns:
-            日记列表
-        """
-        return self._execute(
-            "SELECT * FROM diaries ORDER BY view_count DESC, date ASC LIMIT ?",
-            (limit,),
-            fetch='all'
-        ) or []
-    
-    def get_least_viewed_diaries(self, limit: int = 20) -> List[Dict[str, Any]]:
-        """
-        获取查看次数最少的日记
-        
-        Args:
-            limit: 限制数量
-        
-        Returns:
-            日记列表
-        """
-        return self._execute(
-            "SELECT * FROM diaries ORDER BY view_count ASC, date DESC LIMIT ?",
-            (limit,),
-            fetch='all'
-        ) or []
-    
-    def get_oldest_in_most_viewed(self, limit: int = 20) -> Optional[Dict[str, Any]]:
-        """
-        获取查看次数最多的日记中最久远的
-        
-        Args:
-            limit: 查看次数最多的前N篇
-        
-        Returns:
-            日记字典或None
-        """
-        return self._execute(
-            """
-            SELECT * FROM diaries 
-            WHERE id IN (
-                SELECT id FROM diaries 
-                ORDER BY view_count DESC, date ASC 
-                LIMIT ?
-            )
-            ORDER BY date ASC 
-            LIMIT 1
-            """,
-            (limit,),
-            fetch='one'
-        )
-    
-    def get_random_diary(self, limit: int = None) -> Optional[Dict[str, Any]]:
-        """
-        随机获取一篇日记（基于权重概率选择，使用次数越少，被选中概率越大）
-        使用改进的归一化方法，对全部日记进行计算（除非指定limit）
-        
-        Args:
-            limit: 最多考虑的日记数量，None表示使用全部日记
-        
-        Returns:
-            日记字典或None
-        """
-        from .diary_selection_service import DiarySelectionService
-        
-        # 使用日记选择服务获取加权随机日记
-        service = DiarySelectionService()
-        diaries = self.get_all_diaries() if limit is None else self.get_diaries_with_limit(limit)
-        
-        if not diaries:
-            return None
-        
-        # 将SQL查询结果转换为字典格式的日记对象
-        diary_dicts = [dict(diary) for diary in diaries]
-        return service.get_weighted_random_diary(diary_dicts)
-    
-    def get_diary_for_deletion(self, limit: int = None) -> Optional[Dict[str, Any]]:
-        """
-        获取一篇适合删除的日记（时间久远且查看次数多，被选中概率越大）
-        使用与随机查看相反的权重策略
-        
-        Args:
-            limit: 最多考虑的日记数量，None表示使用全部日记
-        
-        Returns:
-            日记字典或None
-        """
-        from .diary_selection_service import DiarySelectionService
-        
-        # 使用日记选择服务获取加权删除日记
-        service = DiarySelectionService()
-        diaries = self.get_all_diaries() if limit is None else self.get_diaries_with_limit(limit)
-        
-        if not diaries:
-            return None
-        
-        # 将SQL查询结果转换为字典格式的日记对象
-        diary_dicts = [dict(diary) for diary in diaries]
-        return service.get_weighted_deletion_diary(diary_dicts)
-    
-    def search_by_keyword(self, keyword: str, limit: int = 18) -> List[Dict[str, Any]]:
-        """
-        根据关键词搜索日记
-        
-        Args:
-            keyword: 搜索关键词
-            limit: 限制数量
-        
-        Returns:
-            日记列表
-        """
-        if not keyword or not keyword.strip():
-            return []
-        
-        return self._execute(
-            """
-            SELECT * FROM diaries 
-            WHERE content LIKE ? 
-            ORDER BY view_count DESC, date DESC 
-            LIMIT ?
-            """,
-            (f"%{keyword.strip().lower()}%", limit),
-            fetch='all'
-        ) or []
     
     # 以下是与标签管理器的代理方法，以保持原有接口兼容
     def add_tag(self, name: str) -> Optional[Dict[str, Any]]:
