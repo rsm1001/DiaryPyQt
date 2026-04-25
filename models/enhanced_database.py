@@ -166,6 +166,18 @@ class EnhancedDatabaseManager(TagManagementMixin, DatabaseQueryMixin, DiaryOpera
                 )
             ''')
             
+            # 创建每日统计表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS daily_stats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    stat_date TEXT NOT NULL UNIQUE,
+                    yesterday_total_views INTEGER DEFAULT 0,
+                    all_time_max_single_views INTEGER DEFAULT 0,
+                    all_time_max_diary_id INTEGER,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
             # 创建索引
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_date ON diaries(date)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_view_count ON diaries(view_count)')
@@ -281,6 +293,15 @@ class EnhancedDatabaseManager(TagManagementMixin, DatabaseQueryMixin, DiaryOpera
             统计信息字典
         """
         return self.statistics_service.get_statistics()
+    
+    def get_daily_stats(self) -> Dict[str, Any]:
+        """
+        获取每日统计信息（昨日查看总数 + 历史最佳）
+        
+        Returns:
+            每日统计信息字典
+        """
+        return self.statistics_service.get_daily_stats()
     
     # ========================================================================
     # 代理方法 - 迁移和备份功能

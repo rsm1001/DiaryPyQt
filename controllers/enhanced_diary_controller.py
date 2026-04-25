@@ -88,6 +88,10 @@ class EnhancedDiaryController:
         """获取统计信息"""
         return self.db_manager.get_statistics()
     
+    def get_daily_stats(self) -> Dict:
+        """获取每日统计信息（昨日查看总数 + 历史最佳）"""
+        return self.db_manager.get_daily_stats()
+    
     def migrate_from_json(self, json_file_path: str) -> int:
         """从JSON文件迁移数据"""
         return self.db_manager.migrate_from_json(json_file_path)

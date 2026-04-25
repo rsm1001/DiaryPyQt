@@ -3,6 +3,7 @@
 """
 
 from typing import Dict, Any, Optional, List
+from datetime import datetime, timedelta
 import sqlite3
 import logging
 
@@ -218,3 +219,74 @@ class StatisticsService:
         )
         
         return least_diaries or []
+    
+    def get_daily_stats(self) -> Dict[str, Any]:
+        """
+        获取每日统计信息（昨日查看总数 + 历史最佳）
+        使用缓存策略：首次计算后存入daily_stats表，后续直接读取
+        
+        Returns:
+            每日统计信息字典
+        """
+        today = datetime.now().strftime('%Y-%m-%d')
+        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        # 先检查今天是否已有统计记录
+        existing = self.db_manager._execute(
+            "SELECT * FROM daily_stats WHERE stat_date = ?",
+            (today,),
+            fetch='one'
+        )
+        
+        if existing:
+            # 已有记录，直接返回
+            return {
+                'yesterday_total_views': existing['yesterday_total_views'],
+                'all_time_max_single_views': existing['all_time_max_single_views'],
+                'all_time_max_diary_id': existing['all_time_max_diary_id']
+            }
+        
+        # 没有记录，需要计算
+        # 1. 计算昨日查看总数
+        yesterday_stats = self.db_manager._execute(
+            """
+            SELECT COALESCE(SUM(view_count), 0) as total_views
+            FROM diaries
+            WHERE date = ?
+            """,
+            (yesterday,),
+            fetch='one'
+        )
+        yesterday_total = yesterday_stats['total_views'] if yesterday_stats else 0
+        
+        # 2. 计算历史最佳（单次最高查看数）
+        max_stats = self.db_manager._execute(
+            """
+            SELECT id, view_count
+            FROM diaries
+            WHERE view_count = (SELECT MAX(view_count) FROM diaries)
+            ORDER BY date ASC
+            LIMIT 1
+            """,
+            fetch='one'
+        )
+        
+        all_time_max_views = max_stats['view_count'] if max_stats else 0
+        all_time_max_diary_id = max_stats['id'] if max_stats else None
+        
+        # 3. 插入到daily_stats表
+        self.db_manager._execute(
+            """
+            INSERT INTO daily_stats (stat_date, yesterday_total_views, all_time_max_single_views, all_time_max_diary_id)
+            VALUES (?, ?, ?, ?)
+            """,
+            (today, yesterday_total, all_time_max_views, all_time_max_diary_id)
+        )
+        
+        logger.info(f"生成每日统计: 日期={today}, 昨日查看={yesterday_total}, 历史最佳={all_time_max_views}")
+        
+        return {
+            'yesterday_total_views': yesterday_total,
+            'all_time_max_single_views': all_time_max_views,
+            'all_time_max_diary_id': all_time_max_diary_id
+        }

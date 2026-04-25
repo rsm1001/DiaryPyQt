@@ -252,9 +252,12 @@ class MainWindow(QMainWindow):
     def update_status_bar(self):
         """更新状态栏"""
         stats = self.controller.get_statistics()
+        daily_stats = self.controller.get_daily_stats()
         self.status_bar.showMessage(f"总计: {stats['total']} 篇日记 | "
                                   f"总查看次数: {stats['total_views']} | "
-                                  f"平均查看次数: {stats['avg_views']}")
+                                  f"平均查看次数: {stats['avg_views']} | "
+                                  f"昨日查看: {daily_stats['yesterday_total_views']} | "
+                                  f"历史最佳: {daily_stats['all_time_max_single_views']}")
     
     def on_table_clicked(self, index):
         """表格点击事件"""
@@ -428,6 +431,7 @@ class MainWindow(QMainWindow):
     def show_statistics(self):
         """显示统计信息"""
         stats = self.controller.get_statistics()
+        daily_stats = self.controller.get_daily_stats()
         
         if stats['total'] == 0:
             QMessageBox.information(self, "统计", "暂无日记")
@@ -437,6 +441,8 @@ class MainWindow(QMainWindow):
 总计日记数：{stats['total']}
 总查看次数：{stats['total_views']}
 平均查看次数：{stats['avg_views']}
+昨日查看总数：{daily_stats['yesterday_total_views']}
+历史最佳单次：{daily_stats['all_time_max_single_views']} (日记ID: {daily_stats['all_time_max_diary_id'] if daily_stats['all_time_max_diary_id'] else 'N/A'})
 
 最多查看的日记：
 ID: {stats['most_viewed']['id'] if stats['most_viewed'] else 'N/A'}
