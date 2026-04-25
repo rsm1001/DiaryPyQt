@@ -60,6 +60,15 @@ class DiaryEditDialog(QDialog):
         tags_group = QGroupBox("标签选择")
         tags_layout = QVBoxLayout()
         
+        # 标签搜索框
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("搜索标签:"))
+        self.tag_search_input = QLineEdit()
+        self.tag_search_input.setPlaceholderText("输入关键词过滤标签...")
+        self.tag_search_input.textChanged.connect(self.filter_tags)
+        search_layout.addWidget(self.tag_search_input)
+        tags_layout.addLayout(search_layout)
+        
         # 创建滚动区域以容纳可能很多的标签
         self.scroll_area = QScrollArea()
         self.scroll_widget = QWidget()
@@ -155,6 +164,12 @@ class DiaryEditDialog(QDialog):
             checkbox.setParent(None)
         self.tag_checkboxes.clear()
         
+        # 清空内部布局
+        for i in reversed(range(self.tags_inner_layout.count())):
+            item = self.tags_inner_layout.itemAt(i)
+            if item and item.widget():
+                item.widget().setParent(None)
+        
         # 从控制器获取所有标签
         try:
             # 通过父窗口获取控制器
@@ -168,14 +183,43 @@ class DiaryEditDialog(QDialog):
             temp_controller = EnhancedDiaryController(db_path)
             self.all_tags = temp_controller.get_all_tags()
         
-        # 创建标签复选框
-        for tag in self.all_tags:
+        # 应用搜索过滤并渲染标签
+        self.filter_tags(self.tag_search_input.text() if hasattr(self, 'tag_search_input') else "")
+    
+    def filter_tags(self, keyword=""):
+        """根据关键词过滤标签列表"""
+        keyword = keyword.strip().lower()
+        
+        # 清空当前显示的复选框
+        for checkbox in self.tag_checkboxes.values():
+            checkbox.setParent(None)
+        self.tag_checkboxes.clear()
+        
+        # 清空内部布局中的所有控件
+        for i in reversed(range(self.tags_inner_layout.count())):
+            item = self.tags_inner_layout.itemAt(i)
+            if item and item.widget():
+                item.widget().setParent(None)
+        
+        # 过滤标签
+        filtered_tags = self.all_tags
+        if keyword:
+            filtered_tags = [tag for tag in self.all_tags if keyword in tag['name'].lower()]
+        
+        # 创建过滤后的标签复选框
+        for tag in filtered_tags:
             checkbox = QCheckBox(tag['name'])
             checkbox.setObjectName(f"tag_checkbox_{tag['id']}")
             checkbox.setChecked(tag['id'] in self.selected_tag_ids)
             checkbox.stateChanged.connect(self.on_tag_state_changed)
             self.tag_checkboxes[tag['id']] = checkbox
             self.tags_inner_layout.addWidget(checkbox)
+        
+        # 显示过滤结果数量
+        if keyword:
+            self.tag_search_input.setPlaceholderText(f"找到 {len(filtered_tags)} 个标签")
+        else:
+            self.tag_search_input.setPlaceholderText("输入关键词过滤标签...")
     
     def update_tag_selections(self):
         """更新标签选择状态"""
