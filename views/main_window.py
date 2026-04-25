@@ -369,6 +369,9 @@ class MainWindow(QMainWindow):
         if diary:
             dialog = DiaryViewDialog(diary, self, readonly=True)
             dialog.exec()
+            # 增加查看次数并刷新显示
+            self.controller.increment_view_count(diary.id)
+            self.load_data()
     
     def edit_selected(self):
         """编辑选中日记"""
