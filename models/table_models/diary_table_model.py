@@ -39,7 +39,7 @@ class DiaryTableModel(QAbstractTableModel):
                 if hasattr(diary, 'tags') and diary.tags:
                     # 只显示标签名称，用逗号分隔
                     return ", ".join([tag['name'] for tag in diary.tags])
-                return "无标签"
+                return "无标签"  # 委托会将其渲染为短横线
             elif col == 4:  # 内容预览
                 content = diary.content
                 return content[:50] + "..." if len(content) > 50 else content

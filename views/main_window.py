@@ -18,6 +18,7 @@ from utils.theme_utils import ThemeManager
 from widgets.TagSelectorWidget import TagSelectorWidget
 from views.search_dialog import SearchDialog  # 导入解耦的搜索对话框
 from views.dialogs.diary_dialogs import DiaryEditDialog, DiaryViewDialog  # 导入解耦的对话框
+from views.delegates.tag_delegate import TagDelegate  # 导入标签委托
 
 
 
@@ -70,9 +71,18 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # ID列自适应内容
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # 日期列自适应内容
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # 查看次数列自适应内容
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # 标签列自适应内容
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)  # 标签列可调整
+        self.table_view.setColumnWidth(3, 80)  # 设置标签列默认宽度为80像素
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)  # 内容预览列拉伸填充剩余空间
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)  # 设置表头居中对齐
+        
+        # 设置标签列的自定义委托
+        self.tag_delegate = TagDelegate(self.table_view)
+        self.table_view.setItemDelegateForColumn(3, self.tag_delegate)
+        
+        # 固定行高，防止标签撑大表格
+        self.table_view.verticalHeader().setDefaultSectionSize(28)
+        self.table_view.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         
         # 设置表格样式
         self.table_view.setStyleSheet("""
@@ -259,21 +269,46 @@ class MainWindow(QMainWindow):
                                   f"昨日查看: {daily_stats['yesterday_total_views']} | "
                                   f"历史最佳: {daily_stats['all_time_max_single_views']}")
     
+    def _format_tags_html(self, tags):
+        """将标签列表格式化为HTML胶囊样式"""
+        if not tags:
+            return '<span style="color:#999;">无标签</span>'
+        
+        # 预设配色方案（柔和色调）
+        colors = [
+            ('#e3f2fd', '#1976d2'),  # 蓝
+            ('#f3e5f5', '#7b1fa2'),  # 紫
+            ('#e8f5e9', '#388e3c'),  # 绿
+            ('#fff3e0', '#f57c00'),  # 橙
+            ('#fce4ec', '#c2185b'),  # 粉
+            ('#e0f2f1', '#00796b'),  # 青
+            ('#f5f5f5', '#616161'),  # 灰
+            ('#e8eaf6', '#3f51b5'),  # 靛蓝
+        ]
+        
+        html_parts = []
+        for i, tag in enumerate(tags):
+            bg_color, text_color = colors[i % len(colors)]
+            tag_html = (f'<span style="background:{bg_color}; color:{text_color}; '
+                       f'padding:2px 10px; border-radius:12px; margin-right:6px; '
+                       f'font-size:12px; display:inline-block;">{tag["name"]}</span>')
+            html_parts.append(tag_html)
+        
+        return ''.join(html_parts)
+
     def on_table_clicked(self, index):
         """表格点击事件"""
         if index.isValid():
             diary = self.model.data(index, Qt.ItemDataRole.UserRole)
             if diary:
-                # 构建标签字符串
-                tags_str = "无标签"
-                if hasattr(diary, 'tags') and diary.tags:
-                    tags_str = ", ".join([tag['name'] for tag in diary.tags])
+                # 构建标签HTML
+                tags_html = self._format_tags_html(diary.tags if hasattr(diary, 'tags') else [])
                 
                 self.detail_label.setText(f"<b>ID:</b> {diary.id}<br>"
                                         f"<b>日期:</b> {diary.date}<br>"
                                         f"<b>查看次数:</b> {diary.view_count}<br>"
-                                        f"<b>标签:</b> {tags_str}<br>"
-                                        f"<b>内容:</b> {diary.content}")
+                                        f"<b>标签:</b> {tags_html}<br><br>"
+                                        f"<b>内容:</b><br>{diary.content}")
                 
                 # 增加查看次数
                 self.controller.increment_view_count(diary.id)

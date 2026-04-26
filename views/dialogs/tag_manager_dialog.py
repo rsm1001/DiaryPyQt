@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                             QScrollArea, QWidget, QGroupBox, QLineEdit, 
                             QCheckBox, QMessageBox, QInputDialog)
 from PyQt6.QtCore import Qt
+from widgets.layouts.flow_layout import FlowLayout
 
 
 class TagManagerMixin:
@@ -33,7 +34,8 @@ class TagManagerMixin:
         # 创建滚动区域
         self.scroll_area = QScrollArea()
         self.scroll_widget = QWidget()
-        self.tags_inner_layout = QVBoxLayout()
+        # 使用流式布局，标签从左到右自动换行
+        self.tags_inner_layout = FlowLayout(margin=5, spacing=8)
         
         self.scroll_widget.setLayout(self.tags_inner_layout)
         self.scroll_area.setWidget(self.scroll_widget)

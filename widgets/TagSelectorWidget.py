@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                             QScrollArea, QCheckBox, QPushButton, QInputDialog, 
                             QMessageBox, QListWidget, QListWidgetItem)
 from PyQt6.QtCore import Qt, pyqtSignal
+from widgets.layouts.flow_layout import FlowLayout
 
 
 class TagSelectorWidget(QWidget):
@@ -32,12 +33,13 @@ class TagSelectorWidget(QWidget):
         # 创建滚动区域以容纳可能很多的标签
         self.scroll_area = QScrollArea()
         self.scroll_widget = QWidget()
-        self.tags_inner_layout = QVBoxLayout()
+        # 使用流式布局替代垂直布局，标签自动从左到右排列
+        self.tags_inner_layout = FlowLayout(margin=5, spacing=8)
         
         self.scroll_widget.setLayout(self.tags_inner_layout)
         self.scroll_area.setWidget(self.scroll_widget)
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setMaximumHeight(150)  # 设置最大高度
+        self.scroll_area.setMaximumHeight(120)  # 减小最大高度，流式布局更紧凑
         
         tags_layout.addWidget(self.scroll_area)
         
@@ -92,6 +94,33 @@ class TagSelectorWidget(QWidget):
             checkbox.setObjectName(f"tag_checkbox_{tag['id']}")
             checkbox.setChecked(tag['id'] in self.selected_tag_ids)
             checkbox.stateChanged.connect(self.on_tag_state_changed)
+            
+            # 为复选框添加胶囊样式
+            checkbox.setStyleSheet("""
+                QCheckBox {
+                    spacing: 4px;
+                    padding: 4px 10px;
+                    border-radius: 12px;
+                    background-color: #f5f5f5;
+                }
+                QCheckBox:hover {
+                    background-color: #e8e8e8;
+                }
+                QCheckBox::indicator {
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 3px;
+                }
+                QCheckBox::indicator:checked {
+                    background-color: #4CAF50;
+                    border: 2px solid #4CAF50;
+                }
+                QCheckBox::indicator:unchecked {
+                    background-color: white;
+                    border: 2px solid #ccc;
+                }
+            """)
+            
             self.tag_checkboxes[tag['id']] = checkbox
             self.tags_inner_layout.addWidget(checkbox)
 
