@@ -85,15 +85,18 @@ class DiaryEditDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
         return self.content_edit.toPlainText()
 
 
-class DiaryViewDialog(QDialog, CenteredDialogMixin):
+class DiaryViewDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
     """日记查看对话框"""
     
     def __init__(self, diary, parent=None, readonly=False):
         super().__init__(parent)
         self.diary = diary
         self.readonly = readonly
+        self.init_tag_manager()
         self.init_ui()
         self.load_data()
+        self.load_tags()
+        self.update_tag_selections()
     
     def init_ui(self):
         """初始化界面"""
@@ -121,20 +124,8 @@ class DiaryViewDialog(QDialog, CenteredDialogMixin):
         self.content_display.setReadOnly(self.readonly)
         layout.addWidget(self.content_display)
         
-        # 标签选择区域
-        try:
-            controller = self.parent().controller
-        except:
-            from controllers.enhanced_diary_controller import EnhancedDiaryController
-            from config.config import get_db_path
-            controller = EnhancedDiaryController(get_db_path())
-        
-        initial_tag_ids = []
-        if hasattr(self.diary, 'tags') and self.diary.tags:
-            initial_tag_ids = [tag['id'] for tag in self.diary.tags]
-        
-        self.tag_selector = TagSelectorWidget(self, controller, initial_tag_ids)
-        layout.addWidget(self.tag_selector)
+        # 标签选择区域 - 使用 TagManagerMixin 提供的标签UI
+        self.setup_tag_ui(layout)
         
         # 按钮区域 - 居中对齐
         button_layout = QHBoxLayout()
@@ -160,27 +151,18 @@ class DiaryViewDialog(QDialog, CenteredDialogMixin):
     def load_data(self):
         """加载日记数据"""
         self.content_display.setPlainText(self.diary.content)
+        # 加载日记的标签到选中状态
+        if hasattr(self.diary, 'tags') and self.diary.tags:
+            self.selected_tag_ids = {tag['id'] for tag in self.diary.tags}
     
     def save_tags(self):
         """保存标签更改到数据库"""
-        try:
-            controller = self.parent().controller
-        except:
-            from controllers.enhanced_diary_controller import EnhancedDiaryController
-            from config.config import get_db_path
-            controller = EnhancedDiaryController(get_db_path())
-        
-        selected_tag_ids = self.tag_selector.get_selected_tag_ids()
-        success = controller.assign_tags_to_diary(self.diary.id, list(selected_tag_ids))
+        controller = self.get_controller()
+        selected_tag_ids = self.get_selected_tag_ids()
+        success = controller.assign_tags_to_diary(self.diary.id, selected_tag_ids)
         
         if success:
             QMessageBox.information(self, "成功", "标签更新成功！")
-            try:
-                self.diary.tags = controller.get_tags_by_diary_id(self.diary.id)
-            except:
-                from controllers.enhanced_diary_controller import EnhancedDiaryController
-                from config.config import get_db_path
-                temp_controller = EnhancedDiaryController(get_db_path())
-                self.diary.tags = temp_controller.get_tags_by_diary_id(self.diary.id)
+            self.diary.tags = controller.get_tags_by_diary_id(self.diary.id)
         else:
             QMessageBox.warning(self, "错误", "标签更新失败！")
