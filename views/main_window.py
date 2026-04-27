@@ -15,7 +15,10 @@ from models.entities.diary import Diary
 from models.table_models.diary_table_model import DiaryTableModel  # 导入解耦后的模型
 from controllers.enhanced_diary_controller import EnhancedDiaryController
 from utils.theme_utils import ThemeManager
+from utils.formatters import format_tags_html  # 导入解耦的格式化工具
 from widgets.TagSelectorWidget import TagSelectorWidget
+from views.components.toolbar import MainToolBar  # 导入解耦的工具栏组件
+from views.components.menu_bar import MainMenuBar  # 导入解耦的菜单栏组件
 from views.search_dialog import SearchDialog  # 导入解耦的搜索对话框
 from views.dialogs.diary_dialogs import DiaryEditDialog, DiaryViewDialog  # 导入解耦的对话框
 from views.delegates.tag_delegate import TagDelegate  # 导入标签委托
@@ -32,6 +35,10 @@ class MainWindow(QMainWindow):
         self.controller = EnhancedDiaryController(db_path)
         self.db_path = db_path
         self.current_theme = 'light'
+        
+        # 初始化UI组件管理器
+        self.toolbar_manager = MainToolBar(self)
+        self.menu_manager = MainMenuBar(self)
         
         self.init_ui()
         self.setup_connections()
@@ -54,8 +61,8 @@ class MainWindow(QMainWindow):
         # 主布局
         layout = QVBoxLayout(central_widget)
         
-        # 创建工具栏
-        self.create_toolbar()
+        # 创建工具栏（通过组件管理器）
+        self.toolbar_manager.create()
         
         # 创建分割器
         splitter = QSplitter(Qt.Orientation.Vertical)
@@ -134,8 +141,8 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         
-        # 创建菜单栏
-        self.create_menu()
+        # 创建菜单栏（通过组件管理器）
+        self.menu_manager.create()
         
         # 连接信号
         self.table_view.clicked.connect(self.on_table_clicked)
@@ -148,107 +155,7 @@ class MainWindow(QMainWindow):
         y = (screen_geometry.height() - self.height()) // 2
         self.move(screen_geometry.x() + x, screen_geometry.y() + y)
     
-    def create_toolbar(self):
-        """创建工具栏"""
-        toolbar = self.addToolBar('Main')
-        
-        # 新建日记
-        self.new_action = QAction(QIcon(), '新建日记', self)
-        self.new_action.setShortcut('Ctrl+N')
-        self.new_action.triggered.connect(self.new_diary)
-        toolbar.addAction(self.new_action)
-        
-        # 随机查看
-        self.random_action = QAction(QIcon(), '随机查看', self)
-        self.random_action.setShortcut('Ctrl+R')
-        self.random_action.triggered.connect(self.random_view)
-        toolbar.addAction(self.random_action)
-        
-        # 随机删除
-        self.random_delete_action = QAction(QIcon(), '随机删除', self)
-        self.random_delete_action.triggered.connect(self.random_delete)
-        toolbar.addAction(self.random_delete_action)
-        
-        # 搜索
-        self.search_action = QAction(QIcon(), '搜索', self)
-        self.search_action.setShortcut('Ctrl+F')
-        self.search_action.triggered.connect(self.search_diary)
-        toolbar.addAction(self.search_action)
-        
-        # 切换主题
-        self.theme_action = QAction(QIcon(), '切换主题', self)
-        self.theme_action.triggered.connect(self.toggle_theme)
-        toolbar.addAction(self.theme_action)
-        
-        # 统计
-        self.stats_action = QAction(QIcon(), '统计', self)
-        self.stats_action.triggered.connect(self.show_statistics)
-        toolbar.addAction(self.stats_action)
-        
-        # 刷新
-        self.refresh_action = QAction(QIcon(), '刷新', self)
-        self.refresh_action.setShortcut('F5')
-        self.refresh_action.triggered.connect(self.load_data)
-        toolbar.addAction(self.refresh_action)
-    
-    def create_menu(self):
-        """创建菜单栏"""
-        menubar = self.menuBar()
-        
-        # 文件菜单
-        file_menu = menubar.addMenu('文件')
-        
-        export_action = QAction('导出数据...', self)
-        export_action.triggered.connect(self.export_data)
-        file_menu.addAction(export_action)
-        
-        import_action = QAction('导入数据...', self)
-        import_action.triggered.connect(self.import_data)
-        file_menu.addAction(import_action)
-        
-        file_menu.addSeparator()
-        
-        exit_action = QAction('退出', self)
-        exit_action.setShortcut('Ctrl+Q')
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
-        
-        # 编辑菜单
-        edit_menu = menubar.addMenu('编辑')
-        
-        new_action = QAction('新建日记', self)
-        new_action.setShortcut('Ctrl+N')
-        new_action.triggered.connect(self.new_diary)
-        edit_menu.addAction(new_action)
-        
-        edit_menu.addSeparator()
-        
-        search_action = QAction('搜索', self)
-        search_action.setShortcut('Ctrl+F')
-        search_action.triggered.connect(self.search_diary)
-        edit_menu.addAction(search_action)
-        
-        # 视图菜单
-        view_menu = menubar.addMenu('视图')
-        
-        theme_action = QAction('切换主题', self)
-        theme_action.triggered.connect(self.toggle_theme)
-        view_menu.addAction(theme_action)
-        
-        # 工具菜单
-        tools_menu = menubar.addMenu('工具')
-        
-        stats_action = QAction('统计信息', self)
-        stats_action.triggered.connect(self.show_statistics)
-        tools_menu.addAction(stats_action)
-        
-        # 帮助菜单
-        help_menu = menubar.addMenu('帮助')
-        
-        about_action = QAction('关于', self)
-        about_action.triggered.connect(self.show_about)
-        help_menu.addAction(about_action)
-    
+
     def setup_connections(self):
         """设置信号连接"""
         pass
@@ -269,40 +176,13 @@ class MainWindow(QMainWindow):
                                   f"昨日查看: {daily_stats['yesterday_total_views']} | "
                                   f"历史最佳: {daily_stats['all_time_max_single_views']}")
     
-    def _format_tags_html(self, tags):
-        """将标签列表格式化为HTML胶囊样式"""
-        if not tags:
-            return '<span style="color:#999;">无标签</span>'
-        
-        # 预设配色方案（柔和色调）
-        colors = [
-            ('#e3f2fd', '#1976d2'),  # 蓝
-            ('#f3e5f5', '#7b1fa2'),  # 紫
-            ('#e8f5e9', '#388e3c'),  # 绿
-            ('#fff3e0', '#f57c00'),  # 橙
-            ('#fce4ec', '#c2185b'),  # 粉
-            ('#e0f2f1', '#00796b'),  # 青
-            ('#f5f5f5', '#616161'),  # 灰
-            ('#e8eaf6', '#3f51b5'),  # 靛蓝
-        ]
-        
-        html_parts = []
-        for i, tag in enumerate(tags):
-            bg_color, text_color = colors[i % len(colors)]
-            tag_html = (f'<span style="background:{bg_color}; color:{text_color}; '
-                       f'padding:2px 10px; border-radius:12px; margin-right:6px; '
-                       f'font-size:12px; display:inline-block;">{tag["name"]}</span>')
-            html_parts.append(tag_html)
-        
-        return ''.join(html_parts)
-
     def on_table_clicked(self, index):
         """表格点击事件"""
         if index.isValid():
             diary = self.model.data(index, Qt.ItemDataRole.UserRole)
             if diary:
-                # 构建标签HTML
-                tags_html = self._format_tags_html(diary.tags if hasattr(diary, 'tags') else [])
+                # 构建标签HTML（使用解耦的格式化工具）
+                tags_html = format_tags_html(diary.tags if hasattr(diary, 'tags') else [])
                 
                 self.detail_label.setText(f"<b>ID:</b> {diary.id}<br>"
                                         f"<b>日期:</b> {diary.date}<br>"
