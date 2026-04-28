@@ -141,9 +141,16 @@ class EnhancedDatabaseManager(TagManagementMixin, DatabaseQueryMixin, DiaryOpera
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     date TEXT NOT NULL,
                     content TEXT NOT NULL,
-                    view_count INTEGER DEFAULT 0
+                    view_count INTEGER DEFAULT 0,
+                    last_viewed_at TEXT
                 )
             ''')
+            
+            # 迁移：为已有表添加 last_viewed_at 列
+            try:
+                cursor.execute('ALTER TABLE diaries ADD COLUMN last_viewed_at TEXT')
+            except sqlite3.OperationalError:
+                pass  # 列已存在
             
             # 创建标签表
             cursor.execute('''
@@ -176,6 +183,104 @@ class EnhancedDatabaseManager(TagManagementMixin, DatabaseQueryMixin, DiaryOpera
                     all_time_max_diary_id INTEGER,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
+            ''')
+            
+            # 创建查看日志表 - 记录每次查看动作
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS view_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    diary_id INTEGER NOT NULL,
+                    viewed_at TEXT NOT NULL,
+                    FOREIGN KEY (diary_id) REFERENCES diaries(id) ON DELETE CASCADE
+                )
+            ''')
+            
+            # 创建索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_viewed_at ON view_log(viewed_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_diary_id ON view_log(diary_id)')
+            
+            # 创建查看日志表 - 记录每次查看动作
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS view_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    diary_id INTEGER NOT NULL,
+                    viewed_at TEXT NOT NULL,
+                    FOREIGN KEY (diary_id) REFERENCES diaries(id) ON DELETE CASCADE
+                )
+            ''')
+            
+            # 创建索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_viewed_at ON view_log(viewed_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_diary_id ON view_log(diary_id)')
+            
+            # 创建查看日志表 - 记录每次查看动作
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS view_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    diary_id INTEGER NOT NULL,
+                    viewed_at TEXT NOT NULL,
+                    FOREIGN KEY (diary_id) REFERENCES diaries(id) ON DELETE CASCADE
+                )
+            ''')
+            
+            # 创建索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_viewed_at ON view_log(viewed_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_diary_id ON view_log(diary_id)')
+            
+            # 创建查看日志表 - 记录每次查看动作
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS view_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    diary_id INTEGER NOT NULL,
+                    viewed_at TEXT NOT NULL,
+                    FOREIGN KEY (diary_id) REFERENCES diaries(id) ON DELETE CASCADE
+                )
+            ''')
+            
+            # 创建索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_viewed_at ON view_log(viewed_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_diary_id ON view_log(diary_id)')
+            
+            # 创建查看日志表 - 记录每次查看动作
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS view_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    diary_id INTEGER NOT NULL,
+                    viewed_at TEXT NOT NULL,
+                    FOREIGN KEY (diary_id) REFERENCES diaries(id) ON DELETE CASCADE
+                )
+            ''')
+            
+            # 创建索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_viewed_at ON view_log(viewed_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_diary_id ON view_log(diary_id)')
+            
+            # 创建查看日志表 - 记录每次查看动作
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS view_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    diary_id INTEGER NOT NULL,
+                    viewed_at TEXT NOT NULL,
+                    FOREIGN KEY (diary_id) REFERENCES diaries(id) ON DELETE CASCADE
+                )
+            ''')
+            
+            # 创建索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_viewed_at ON view_log(viewed_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_diary_id ON view_log(diary_id)')
+            
+            # 创建应用配置表 - 存储历史最佳等全局配置
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS app_config (
+                    key TEXT PRIMARY KEY,
+                    value INTEGER DEFAULT 0,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 初始化历史最佳值为0
+            cursor.execute('''
+                INSERT OR IGNORE INTO app_config (key, value) VALUES ('all_time_max_daily_views', 0)
             ''')
             
             # 创建索引

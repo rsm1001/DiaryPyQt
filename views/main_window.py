@@ -36,6 +36,9 @@ class MainWindow(QMainWindow):
         self.db_path = db_path
         self.current_theme = 'light'
         
+        # 启动时清理旧查看日志（只保留昨天和今天的记录）
+        self.controller.cleanup_old_view_logs()
+        
         # 初始化UI组件管理器
         self.toolbar_manager = MainToolBar(self)
         self.menu_manager = MainMenuBar(self)
@@ -170,9 +173,11 @@ class MainWindow(QMainWindow):
         """更新状态栏"""
         stats = self.controller.get_statistics()
         daily_stats = self.controller.get_daily_stats()
+        today_views = self.controller.get_today_total_views()
         self.status_bar.showMessage(f"总计: {stats['total']} 篇日记 | "
                                   f"总查看次数: {stats['total_views']} | "
                                   f"平均查看次数: {stats['avg_views']} | "
+                                  f"今日查看: {today_views} | "
                                   f"昨日查看: {daily_stats['yesterday_total_views']} | "
                                   f"历史最佳: {daily_stats['all_time_max_single_views']}")
     
@@ -357,7 +362,7 @@ class MainWindow(QMainWindow):
 总查看次数：{stats['total_views']}
 平均查看次数：{stats['avg_views']}
 昨日查看总数：{daily_stats['yesterday_total_views']}
-历史最佳单次：{daily_stats['all_time_max_single_views']} (日记ID: {daily_stats['all_time_max_diary_id'] if daily_stats['all_time_max_diary_id'] else 'N/A'})
+历史最佳单日：{daily_stats['all_time_max_single_views']} ({daily_stats['all_time_max_date'] if daily_stats['all_time_max_date'] else 'N/A'})
 
 最多查看的日记：
 ID: {stats['most_viewed']['id'] if stats['most_viewed'] else 'N/A'}

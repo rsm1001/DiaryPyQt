@@ -23,7 +23,7 @@ class ViewCountService:
     
     def increment_view_count(self, diary_id: int) -> Optional[int]:
         """
-        增加日记查看次数
+        增加日记查看次数，同时更新最后查看时间和查看日志
         
         Args:
             diary_id: 日记ID
@@ -31,11 +31,45 @@ class ViewCountService:
         Returns:
             新的查看次数或None
         """
+        from datetime import datetime
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # 记录查看日志
+        self.db_manager._execute(
+            "INSERT INTO view_log (diary_id, viewed_at) VALUES (?, ?)",
+            (diary_id, now)
+        )
+        
+        # 计算今日当前查看数
+        today_result = self.db_manager._execute(
+            "SELECT COUNT(*) as count FROM view_log WHERE date(viewed_at) = ?",
+            (today,),
+            fetch='one'
+        )
+        today_count = today_result['count'] if today_result else 0
+        
+        # 获取当前历史最佳
+        max_result = self.db_manager._execute(
+            "SELECT value FROM app_config WHERE key = 'all_time_max_daily_views'",
+            fetch='one'
+        )
+        current_max = max_result['value'] if max_result else 0
+        
+        # 如果今日查看数超过历史最佳，更新历史最佳
+        if today_count > current_max:
+            self.db_manager._execute(
+                """INSERT OR REPLACE INTO app_config (key, value, updated_at) 
+                   VALUES ('all_time_max_daily_views', ?, ?)""",
+                (today_count, now)
+            )
+            logger.info(f"更新历史最佳单日查看数: {current_max} -> {today_count}")
+        
         # 使用RETURNING子句获取更新后的值（SQLite 3.35.0+）
         try:
             result = self.db_manager._execute(
-                "UPDATE diaries SET view_count = view_count + 1 WHERE id = ? RETURNING view_count",
-                (diary_id,),
+                "UPDATE diaries SET view_count = view_count + 1, last_viewed_at = ? WHERE id = ? RETURNING view_count",
+                (now, diary_id),
                 fetch='one'
             )
             if result:
@@ -44,8 +78,8 @@ class ViewCountService:
         except sqlite3.Error:
             # 如果RETURNING不支持，使用传统方式
             self.db_manager._execute(
-                "UPDATE diaries SET view_count = view_count + 1 WHERE id = ?",
-                (diary_id,)
+                "UPDATE diaries SET view_count = view_count + 1, last_viewed_at = ? WHERE id = ?",
+                (now, diary_id)
             )
             result = self.db_manager._execute(
                 "SELECT view_count FROM diaries WHERE id = ?",
@@ -191,3 +225,28 @@ class ViewCountService:
             (min_views, max_views),
             fetch='all'
         ) or []
+    
+    def cleanup_old_view_logs(self) -> int:
+        """
+        清理昨日与今日之外的所有查看日志
+        只保留昨天和今天的查看记录
+        
+        Returns:
+            删除的记录数
+        """
+        from datetime import datetime, timedelta
+        
+        # 计算昨天的日期
+        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        # 删除昨天之前的所有日志
+        rowcount = self.db_manager._execute(
+            "DELETE FROM view_log WHERE date(viewed_at) < ?",
+            (yesterday,),
+            fetch='rowcount'
+        )
+        
+        if rowcount > 0:
+            logger.info(f"清理旧查看日志，删除 {rowcount} 条记录（保留昨天和今天的记录）")
+        
+        return rowcount or 0

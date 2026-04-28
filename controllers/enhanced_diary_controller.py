@@ -92,6 +92,10 @@ class EnhancedDiaryController:
         """获取每日统计信息（昨日查看总数 + 历史最佳）"""
         return self.db_manager.get_daily_stats()
     
+    def get_today_total_views(self) -> int:
+        """获取今日查看总数（实时）"""
+        return self.db_manager.statistics_service.get_today_total_views()
+    
     def migrate_from_json(self, json_file_path: str) -> int:
         """从JSON文件迁移数据"""
         return self.db_manager.migrate_from_json(json_file_path)
@@ -184,3 +188,7 @@ class EnhancedDiaryController:
     def assign_tags_to_diary(self, diary_id: int, tag_ids: List[int]) -> bool:
         """为日记分配一组标签（替换原有标签）"""
         return self.db_manager.assign_tags_to_diary(diary_id, tag_ids)
+    
+    def cleanup_old_view_logs(self) -> int:
+        """清理昨日与今日之外的所有查看日志"""
+        return self.db_manager.view_count_service.cleanup_old_view_logs()

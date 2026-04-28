@@ -222,8 +222,7 @@ class StatisticsService:
     
     def get_daily_stats(self) -> Dict[str, Any]:
         """
-        获取每日统计信息（昨日查看总数 + 历史最佳）
-        使用缓存策略：首次计算后存入daily_stats表，后续直接读取
+        获取每日统计信息（昨日查看总数 + 历史最佳单日查看数）
         
         Returns:
             每日统计信息字典
@@ -231,62 +230,57 @@ class StatisticsService:
         today = datetime.now().strftime('%Y-%m-%d')
         yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
         
-        # 先检查今天是否已有统计记录
-        existing = self.db_manager._execute(
-            "SELECT * FROM daily_stats WHERE stat_date = ?",
-            (today,),
-            fetch='one'
-        )
-        
-        if existing:
-            # 已有记录，直接返回
-            return {
-                'yesterday_total_views': existing['yesterday_total_views'],
-                'all_time_max_single_views': existing['all_time_max_single_views'],
-                'all_time_max_diary_id': existing['all_time_max_diary_id']
-            }
-        
-        # 没有记录，需要计算
-        # 1. 计算昨日查看总数
-        yesterday_stats = self.db_manager._execute(
+        # 1. 计算昨日查看总数 - 查询 view_log 表获取昨天实际的查看次数
+        yesterday_result = self.db_manager._execute(
             """
-            SELECT COALESCE(SUM(view_count), 0) as total_views
-            FROM diaries
-            WHERE date = ?
+            SELECT COUNT(*) as total_views
+            FROM view_log
+            WHERE date(viewed_at) = ?
             """,
             (yesterday,),
             fetch='one'
         )
-        yesterday_total = yesterday_stats['total_views'] if yesterday_stats else 0
+        yesterday_total = yesterday_result['total_views'] if yesterday_result else 0
         
-        # 2. 计算历史最佳（单次最高查看数）
-        max_stats = self.db_manager._execute(
-            """
-            SELECT id, view_count
-            FROM diaries
-            WHERE view_count = (SELECT MAX(view_count) FROM diaries)
-            ORDER BY date ASC
-            LIMIT 1
-            """,
+        # 2. 获取历史最佳单日查看数 - 从 app_config 表读取
+        max_result = self.db_manager._execute(
+            "SELECT value, updated_at FROM app_config WHERE key = 'all_time_max_daily_views'",
             fetch='one'
         )
+        all_time_max_daily_views = max_result['value'] if max_result else 0
         
-        all_time_max_views = max_stats['view_count'] if max_stats else 0
-        all_time_max_diary_id = max_stats['id'] if max_stats else None
-        
-        # 3. 插入到daily_stats表
+        # 3. 更新 daily_stats 表（用于兼容其他可能依赖此表的逻辑）
         self.db_manager._execute(
             """
-            INSERT INTO daily_stats (stat_date, yesterday_total_views, all_time_max_single_views, all_time_max_diary_id)
+            INSERT OR REPLACE INTO daily_stats (stat_date, yesterday_total_views, all_time_max_single_views, all_time_max_diary_id)
             VALUES (?, ?, ?, ?)
             """,
-            (today, yesterday_total, all_time_max_views, all_time_max_diary_id)
+            (today, yesterday_total, all_time_max_daily_views, None)
         )
         
-        logger.info(f"生成每日统计: 日期={today}, 昨日查看={yesterday_total}, 历史最佳={all_time_max_views}")
+        logger.info(f"生成每日统计: 日期={today}, 昨日查看={yesterday_total}, 历史最佳单日={all_time_max_daily_views}")
         
         return {
             'yesterday_total_views': yesterday_total,
-            'all_time_max_single_views': all_time_max_views,
-            'all_time_max_diary_id': all_time_max_diary_id
+            'all_time_max_single_views': all_time_max_daily_views,
+            'all_time_max_date': max_result['updated_at'] if max_result else None
         }
+    
+    def get_today_total_views(self) -> int:
+        """
+        获取今日查看次数（实时查询，统计今天所有查看动作数）
+        
+        Returns:
+            今日查看次数
+        """
+        today = datetime.now().strftime('%Y-%m-%d')
+        result = self.db_manager._execute(
+            """
+            SELECT COUNT(*) as total_views
+            FROM view_log
+            WHERE date(viewed_at) = ?
+            """,
+            (today,),
+            fetch='one'
+        )
+        return result['total_views'] if result else 0
