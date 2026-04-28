@@ -5,7 +5,7 @@
 import random
 from datetime import datetime
 from typing import List, Dict, Optional, Any
-from .weight_calculation_service import WeightCalculationService
+from .calculation_service import WeightCalculationService
 
 
 class DiarySelectionService:

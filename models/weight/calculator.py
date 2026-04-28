@@ -7,8 +7,8 @@ from datetime import datetime
 from typing import List, Dict, Optional, Any, Tuple
 # 修正导入路径
 from models.enhanced_database import EnhancedDatabaseManager
-from models.weight_calculation_service import WeightCalculationService
-from models.strategies.weight.normalization_strategies import NormalizationStrategyFactory
+from .calculation_service import WeightCalculationService
+from .normalization_strategies import NormalizationStrategyFactory
 
 
 class WeightCalculator:

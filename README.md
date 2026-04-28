@@ -31,27 +31,62 @@ python main.py
 
 ```
 DiaryPyQt/
-├── data/                    # 数据目录
-│   └── diary.db            # 本地数据库
-├── main.py                  # 主程序入口
-├── config.py                # 配置文件
-├── requirements.txt         # 依赖包列表
-├── README.md               # 说明文档
-├── models/                 # 数据模型
-│   ├── diary.py           # 日记实体
-│   ├── database.py        # 原始数据库管理
-│   ├── enhanced_database.py # 增强数据库管理
-│   └── __init__.py
-├── views/                  # 视图层
-│   ├── main_window.py     # 主窗口
-│   └── __init__.py
-├── controllers/            # 控制器层
-│   ├── diary_controller.py     # 原始控制器
-│   ├── enhanced_diary_controller.py # 增强控制器
-│   └── __init__.py
-└── utils/                  # 工具函数
-    ├── themes.py          # 主题管理
-    └── __init__.py
+├── data/                           # 数据目录
+│   └── diary.db                    # SQLite 数据库
+├── main.py                         # 主程序入口
+├── requirements.txt                # 依赖包列表
+├── launch_diary_app.bat            # Windows 启动脚本
+├── README.md                       # 说明文档
+├── config/                         # 配置模块
+│   └── config.py                   # 应用配置、数据库路径
+├── controllers/                    # 控制器层
+│   └── enhanced_diary_controller.py # 日记业务控制器
+├── models/                         # 数据模型层
+│   ├── enhanced_database.py        # 增强数据库管理器
+│   ├── migration_backup_manager.py # 数据迁移备份
+│   ├── calculations/               # 计算核心
+│   │   └── weight_calculation_core.py
+│   ├── config/                     # 配置管理
+│   │   └── db_config.py
+│   ├── entities/                   # 实体类
+│   │   └── diary.py
+│   ├── mixins/                     # 混入类
+│   │   ├── database_query_mixin.py
+│   │   └── tag_management_mixin.py
+│   ├── repository/                 # 仓储层
+│   │   ├── data_migration_mixin.py
+│   │   ├── diary_operations.py
+│   │   └── statistics_mixin.py
+│   ├── table_models/               # PyQt 表格模型
+│   │   └── diary_table_model.py
+│   └── weight/                     # 权重计算模块
+│       ├── calculation_service.py
+│       ├── calculator.py
+│       ├── diary_selection_service.py
+│       └── normalization_strategies.py
+├── services/                       # 业务服务层
+│   ├── content_service.py
+│   ├── statistics_service.py
+│   └── view_count_service.py
+├── utils/                          # 工具函数
+│   ├── formatters.py
+│   └── theme_utils.py
+├── views/                          # 视图层
+│   ├── main_window.py              # 主窗口
+│   ├── search_dialog.py            # 搜索对话框
+│   ├── components/                 # UI 组件
+│   │   ├── menu_bar.py
+│   │   └── toolbar.py
+│   ├── delegates/                  # 自定义委托
+│   │   └── tag_delegate.py
+│   └── dialogs/                    # 对话框
+│       ├── base_dialog.py
+│       ├── diary_dialogs.py
+│       └── tag_manager_dialog.py
+└── widgets/                        # 自定义控件
+    ├── TagSelectorWidget.py
+    └── layouts/
+        └── flow_layout.py
 ```
 
 ## 快捷键
