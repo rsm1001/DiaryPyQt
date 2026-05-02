@@ -110,6 +110,22 @@ class MainWindow(QMainWindow):
             }
         """)
         
+        # 启用鼠标悬停提示（不计入查看次数）
+        self.table_view.setMouseTracking(True)
+        self.table_view.setToolTipDuration(999999)  # 不自动消失
+        self.table_view.viewport().setStyleSheet("""
+            QToolTip {
+                background-color: #fffde7;
+                color: #333333;
+                border: 2px solid #ffc107;
+                border-radius: 8px;
+                padding: 12px 16px;
+                font-size: 13px;
+                font-family: 'Microsoft YaHei', sans-serif;
+                max-width: 600px;
+            }
+        """)
+        
         # 设置选择行为
         self.table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)

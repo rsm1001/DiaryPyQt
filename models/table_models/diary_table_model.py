@@ -54,6 +54,9 @@ class DiaryTableModel(QAbstractTableModel):
                 return Qt.AlignmentFlag.AlignCenter
             elif col in [4]:  # 内容预览 左对齐
                 return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        elif role == Qt.ItemDataRole.ToolTipRole:
+            # 鼠标悬停时显示日记完整内容（不计入查看次数）
+            return diary.content
         elif role == Qt.ItemDataRole.FontRole:
             # 设置字体，使表格更美观
             font = QFont()
