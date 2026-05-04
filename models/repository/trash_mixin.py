@@ -21,19 +21,19 @@ class TrashMixin:
 
     def _get_trash_connection(self) -> sqlite3.Connection:
         """获取线程本地的垃圾桶数据库连接"""
-        if not hasattr(self._local, 'trash_connection') or self._local.trash_connection is None:
+        if not hasattr(self._db_local, 'trash_connection') or self._db_local.trash_connection is None:
             from models.config.db_config import get_db_config
             trash_db_path = get_db_config().get_trash_db_path()
             # 确保目录存在
             os.makedirs(os.path.dirname(trash_db_path) or '.', exist_ok=True)
-            self._local.trash_connection = sqlite3.connect(
+            self._db_local.trash_connection = sqlite3.connect(
                 trash_db_path,
                 check_same_thread=False,
                 isolation_level=None  # 自动提交模式
             )
-            self._local.trash_connection.execute("PRAGMA foreign_keys = ON")
-            self._local.trash_connection.row_factory = sqlite3.Row
-        return self._local.trash_connection
+            self._db_local.trash_connection.execute("PRAGMA foreign_keys = ON")
+            self._db_local.trash_connection.row_factory = sqlite3.Row
+        return self._db_local.trash_connection
 
     def _init_trash_database(self):
         """初始化垃圾桶数据库表"""
