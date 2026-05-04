@@ -93,6 +93,13 @@ class MainMenuBar:
         stats_action = QAction('统计信息', self.main_window)
         stats_action.triggered.connect(self.main_window.show_statistics)
         tools_menu.addAction(stats_action)
+        
+        tools_menu.addSeparator()
+        
+        trash_action = QAction('垃圾桶', self.main_window)
+        trash_action.setShortcut('Ctrl+T')
+        trash_action.triggered.connect(self.main_window.open_trash)
+        tools_menu.addAction(trash_action)
     
     def _create_help_menu(self, menubar: QMenuBar):
         """创建帮助菜单"""

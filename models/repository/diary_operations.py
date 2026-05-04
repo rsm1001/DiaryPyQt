@@ -79,13 +79,13 @@ class DiaryOperationsMixin:
 
     def delete_diary_by_id(self, diary_id: int) -> Optional[Dict[str, Any]]:
         """
-        根据ID删除日记
+        根据ID删除日记（移动到垃圾桶）
 
         Args:
             diary_id: 日记ID
 
         Returns:
-            被删除的日记字典或None
+            移动结果信息或None
         """
         # 先获取日记信息
         diary = self.get_diary_by_id(diary_id)
@@ -93,14 +93,13 @@ class DiaryOperationsMixin:
             logger.warning(f"删除失败，日记不存在: {diary_id}")
             return None
 
-        # 删除日记
-        self._execute(
-            "DELETE FROM diaries WHERE id = ?",
-            (diary_id,)
-        )
+        # 移动到垃圾桶（软删除）
+        result = self.move_to_trash(diary_id)
 
-        logger.info(f"删除日记成功，ID: {diary_id}")
-        return diary
+        if result:
+            logger.info(f"删除日记成功，ID: {diary_id}，垃圾桶ID: {result.get('trash_id')}")
+            return result
+        return None
 
     def get_all_diaries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """

@@ -74,4 +74,10 @@ class MainToolBar:
         self.refresh_action.triggered.connect(self.main_window.load_data)
         self.toolbar.addAction(self.refresh_action)
         
+        # 垃圾桶
+        self.trash_action = QAction(QIcon(), '垃圾桶', self.main_window)
+        self.trash_action.setShortcut('Ctrl+T')
+        self.trash_action.triggered.connect(self.main_window.open_trash)
+        self.toolbar.addAction(self.trash_action)
+        
         return self.toolbar

@@ -16,6 +16,7 @@ from .mixins.tag_management_mixin import TagManagementMixin
 from .migration_backup_manager import MigrationBackupManager
 from .mixins.database_query_mixin import DatabaseQueryMixin
 from .repository.diary_operations import DiaryOperationsMixin
+from .repository.trash_mixin import TrashMixin
 
 # 导入服务模块 - 使用动态导入以避免循环依赖和相对导入问题
 def _import_services_lazily():
@@ -33,7 +34,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class EnhancedDatabaseManager(TagManagementMixin, DatabaseQueryMixin, DiaryOperationsMixin):
+class EnhancedDatabaseManager(TagManagementMixin, DatabaseQueryMixin, DiaryOperationsMixin, TrashMixin):
     """增强版SQLite数据库管理器 - 包含完整的迁移和备份功能"""
     
     def __init__(self, db_path: str = None):
@@ -83,6 +84,9 @@ class EnhancedDatabaseManager(TagManagementMixin, DatabaseQueryMixin, DiaryOpera
         
         # 初始化日记内容服务
         self.diary_content_service = DiaryContentService(self)
+        
+        # 初始化垃圾桶数据库
+        self._init_trash_database()
         
         import os  # 在使用os之前重新导入，以避免作用域问题
         logger.info(f"EnhancedDatabaseManager初始化完成，数据库路径: {os.path.abspath(self.db_path)}")
@@ -499,6 +503,10 @@ class EnhancedDatabaseManager(TagManagementMixin, DatabaseQueryMixin, DiaryOpera
             self._local.connection.close()
             self._local.connection = None
             logger.info("数据库连接已关闭")
+        if hasattr(self._local, 'trash_connection') and self._local.trash_connection:
+            self._local.trash_connection.close()
+            self._local.trash_connection = None
+            logger.info("垃圾桶数据库连接已关闭")
 
 
 # 单例模式

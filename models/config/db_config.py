@@ -6,6 +6,10 @@ import os
 from pathlib import Path
 
 
+# 垃圾桶配置
+TRASH_CACHE_SIZE = 10000  # 垃圾桶缓存容量，可通过环境变量 DIARY_TRASH_CACHE_SIZE 覆盖
+
+
 class DatabaseConfig:
     """数据库配置类"""
     
@@ -15,6 +19,11 @@ class DatabaseConfig:
             'DIARY_DB_PATH', 
             self._get_default_db_path()
         )
+        # 垃圾桶缓存容量
+        self.trash_cache_size = int(os.environ.get(
+            'DIARY_TRASH_CACHE_SIZE', 
+            TRASH_CACHE_SIZE
+        ))
     
     def _get_default_db_path(self) -> str:
         """获取默认数据库路径"""
@@ -33,6 +42,19 @@ class DatabaseConfig:
     def set_db_path(self, path: str):
         """设置数据库路径"""
         self.db_path = path
+    
+    def get_trash_db_path(self) -> str:
+        """获取垃圾桶数据库路径（跟随主数据库路径）"""
+        # 获取主数据库的目录和文件名（不含扩展名）
+        db_dir = os.path.dirname(self.db_path)
+        db_basename = os.path.splitext(os.path.basename(self.db_path))[0]
+        # 垃圾桶数据库命名为 trash_<原名>.db，与主数据库同目录
+        trash_path = os.path.join(db_dir, f"trash_{db_basename}.db")
+        return trash_path
+    
+    def get_trash_cache_size(self) -> int:
+        """获取垃圾桶缓存容量"""
+        return self.trash_cache_size
 
 
 # 全局配置实例

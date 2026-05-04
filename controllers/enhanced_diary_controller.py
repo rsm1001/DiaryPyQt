@@ -192,3 +192,38 @@ class EnhancedDiaryController:
     def cleanup_old_view_logs(self) -> int:
         """清理昨日与今日之外的所有查看日志"""
         return self.db_manager.view_count_service.cleanup_old_view_logs()
+    
+    # ========================================================================
+    # 垃圾桶操作
+    # ========================================================================
+    
+    def move_to_trash(self, diary_id: int) -> Optional[Dict]:
+        """将日记移动到垃圾桶（软删除）"""
+        return self.db_manager.move_to_trash(diary_id)
+    
+    def restore_from_trash(self, trash_id: int) -> Optional[Diary]:
+        """从垃圾桶恢复日记"""
+        diary_dict = self.db_manager.restore_from_trash(trash_id)
+        if diary_dict:
+            return Diary.from_dict(diary_dict)
+        return None
+    
+    def get_all_trash_diaries(self, limit: Optional[int] = None) -> List[Dict]:
+        """获取所有垃圾桶中的日记"""
+        return self.db_manager.get_all_trash_diaries(limit)
+    
+    def search_trash_by_keyword(self, keyword: str, limit: int = 100) -> List[Dict]:
+        """在垃圾桶中搜索日记"""
+        return self.db_manager.search_trash_by_keyword(keyword, limit)
+    
+    def get_trash_count(self) -> int:
+        """获取垃圾桶中的日记数量"""
+        return self.db_manager.get_trash_count()
+    
+    def permanently_delete_trash(self, trash_id: int) -> bool:
+        """永久删除垃圾桶中的日记"""
+        return self.db_manager.permanently_delete_trash(trash_id)
+    
+    def empty_trash(self) -> int:
+        """清空整个垃圾桶"""
+        return self.db_manager.empty_trash()

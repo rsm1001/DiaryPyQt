@@ -21,6 +21,7 @@ from views.components.toolbar import MainToolBar  # 导入解耦的工具栏组�
 from views.components.menu_bar import MainMenuBar  # 导入解耦的菜单栏组件
 from views.search_dialog import SearchDialog  # 导入解耦的搜索对话框
 from views.dialogs.diary_dialogs import DiaryEditDialog, DiaryViewDialog  # 导入解耦的对话框
+from views.dialogs.trash_dialog import TrashDialog  # 导入垃圾桶对话框
 from views.delegates.tag_delegate import TagDelegate  # 导入标签委托
 
 
@@ -428,5 +429,11 @@ ID: {stats['least_viewed']['id'] if stats['least_viewed'] else 'N/A'}
             "关于",
             "日记管理系统 PyQt版\n\n版本: 1.0\n作者: Assistant\n\n基于PyQt6开发的现代化日记管理系统。"
         )
+    
+    def open_trash(self):
+        """打开垃圾桶对话框"""
+        dialog = TrashDialog(self.controller, self)
+        dialog.exec()
+        self.load_data()  # 恢复日记后刷新列表
 
 
