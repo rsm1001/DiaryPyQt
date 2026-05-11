@@ -8,15 +8,17 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
                             QMessageBox, QApplication)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence
+from views.dialogs.base_dialog import CenteredDialogMixin, ContextMenuMixin
 
 
-class SearchDialog(QDialog):
+class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
     """搜索对话框 - 从主窗口解耦出来的功能"""
-    
+
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
         self.current_results = []  # 当前显示的结果
+        self._current_item = None  # 当前右键点击的项
         self.init_ui()
         self.load_tags()  # 加载标签
     
@@ -127,9 +129,16 @@ class SearchDialog(QDialog):
         layout.addLayout(button_layout)
         
         self.setLayout(layout)
-        
+
         # 设置焦点到输入框
         self.keyword_input.setFocus()
+
+        # 设置结果列表的右键菜单
+        self.setup_context_menu_for_list(self.results_list)
+
+    def _on_result_item_clicked(self, item):
+        """结果项被点击时保存引用"""
+        self._current_item = item
     
     def center_on_parent(self):
         """使对话框居中于父窗口"""
@@ -222,26 +231,26 @@ class SearchDialog(QDialog):
     def delete_unused_tags(self):
         """删除未被使用的标签"""
         unused_tags = self.controller.get_unused_tags()
-        
+
         if not unused_tags:
             QMessageBox.information(self, "提示", "没有未被使用的标签，无需删除。")
             return
-        
+
         # 显示未使用的标签列表供用户确认
         unused_tag_names = [tag['name'] for tag in unused_tags]
         tag_list_str = "\n".join(unused_tag_names)
-        
+
         reply = QMessageBox.question(
             self,
             "确认删除未使用标签",
             f"以下标签未被任何日记使用，是否删除？\n\n{tag_list_str}\n\n确认删除吗？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        
+
         if reply == QMessageBox.StandardButton.Yes:
             deleted_count = 0
             failed_count = 0
-            
+
             for tag in unused_tags:
                 try:
                     # 尝试删除标签
@@ -253,7 +262,26 @@ class SearchDialog(QDialog):
                 except Exception as e:
                     failed_count += 1
                     print(f"删除标签失败: {e}")
-            
-            QMessageBox.information(self, "删除结果", 
+
+            QMessageBox.information(self, "删除结果",
                                    f"删除完成！\n成功删除: {deleted_count} 个\n失败: {failed_count} 个")
             self.load_tags()  # 重新加载标签列表
+
+    def _remove_result_item(self, item):
+        """从结果列表中移除项"""
+        if item and item.listWidget():
+            row = item.listWidget().row(item)
+            item.listWidget().takeItem(row)
+            if item in self.current_results:
+                self.current_results.remove(item)
+            self.result_count_label.setText(f"共 {len(self.current_results)} 条结果")
+
+    def _refresh_search_results(self):
+        """刷新搜索结果"""
+        keyword = self.keyword_input.text().strip()
+        if keyword:
+            results = self.controller.search_by_keyword(keyword)
+            self.display_results(results, f"关键词: '{keyword}'")
+        else:
+            results = self.controller.get_all_diaries(limit=50)
+            self.display_results(results, "全部日记")
