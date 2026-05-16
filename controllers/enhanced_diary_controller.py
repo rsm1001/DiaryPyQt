@@ -188,6 +188,49 @@ class EnhancedDiaryController:
     def assign_tags_to_diary(self, diary_id: int, tag_ids: List[int]) -> bool:
         """为日记分配一组标签（替换原有标签）"""
         return self.db_manager.assign_tags_to_diary(diary_id, tag_ids)
+
+    def batch_delete_diaries(self, diary_ids: List[int]) -> Dict[str, int]:
+        """批量移动日记到垃圾桶
+
+        Args:
+            diary_ids: 日记ID列表
+
+        Returns:
+            包含 succeeded 和 failed 数量的字典
+        """
+        succeeded = 0
+        failed = 0
+        for diary_id in diary_ids:
+            try:
+                if self.delete_diary_by_id(diary_id):
+                    succeeded += 1
+                else:
+                    failed += 1
+            except Exception:
+                failed += 1
+        return {'succeeded': succeeded, 'failed': failed}
+
+    def batch_assign_tags(self, diary_ids: List[int], tag_ids: List[int]) -> Dict[str, int]:
+        """批量为日记分配标签
+
+        Args:
+            diary_ids: 日记ID列表
+            tag_ids: 标签ID列表
+
+        Returns:
+            包含 succeeded 和 failed 数量的字典
+        """
+        succeeded = 0
+        failed = 0
+        for diary_id in diary_ids:
+            try:
+                if self.assign_tags_to_diary(diary_id, tag_ids):
+                    succeeded += 1
+                else:
+                    failed += 1
+            except Exception:
+                failed += 1
+        return {'succeeded': succeeded, 'failed': failed}
     
     def cleanup_old_view_logs(self) -> int:
         """清理昨日与今日之外的所有查看日志"""

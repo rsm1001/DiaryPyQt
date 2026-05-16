@@ -79,5 +79,24 @@ class MainToolBar:
         self.trash_action.setShortcut('Ctrl+T')
         self.trash_action.triggered.connect(self.main_window.open_trash)
         self.toolbar.addAction(self.trash_action)
-        
+
+        self.toolbar.addSeparator()
+
+        # 批量删除
+        self.batch_delete_action = QAction(QIcon(), '批量删除', self.main_window)
+        self.batch_delete_action.setEnabled(False)
+        self.batch_delete_action.triggered.connect(self.main_window.batch_delete_selected)
+        self.toolbar.addAction(self.batch_delete_action)
+
+        # 批量打标签
+        self.batch_tag_action = QAction(QIcon(), '批量打标签', self.main_window)
+        self.batch_tag_action.setEnabled(False)
+        self.batch_tag_action.triggered.connect(self.main_window.batch_tag_selected)
+        self.toolbar.addAction(self.batch_tag_action)
+
         return self.toolbar
+
+    def set_batch_actions_enabled(self, enabled: bool):
+        """批量操作按钮启用/禁用状态"""
+        self.batch_delete_action.setEnabled(enabled)
+        self.batch_tag_action.setEnabled(enabled)

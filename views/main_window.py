@@ -129,7 +129,7 @@ class MainWindow(QMainWindow):
         
         # 设置选择行为
         self.table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         
         splitter.addWidget(self.table_view)
@@ -178,7 +178,12 @@ class MainWindow(QMainWindow):
 
     def setup_connections(self):
         """设置信号连接"""
-        pass
+        self.table_view.selectionModel().selectionChanged.connect(self.on_selection_changed)
+
+    def on_selection_changed(self):
+        """选择行变化时更新批量按钮状态"""
+        count = len(self.table_view.selectionModel().selectedRows())
+        self.toolbar_manager.set_batch_actions_enabled(count > 0)
     
     def load_data(self):
         """加载日记数据"""
@@ -218,20 +223,24 @@ class MainWindow(QMainWindow):
     
     def show_context_menu(self, position):
         """显示右键菜单"""
+        selected = self.table_view.selectionModel().selectedRows()
+        count = len(selected)
         menu = QMenu()
-        
-        view_action = menu.addAction("查看")
-        edit_action = menu.addAction("编辑")
-        delete_action = menu.addAction("删除")
-        
+
+        if count == 0:
+            return
+        elif count == 1:
+            menu.addAction("查看", self.view_selected)
+            menu.addAction("编辑", self.edit_selected)
+            menu.addAction("删除", self.delete_selected)
+        else:
+            menu.addAction(f"查看 ({count}篇)", self.view_selected)
+            menu.addAction(f"编辑 ({count}篇)", self.edit_selected)
+            menu.addSeparator()
+            menu.addAction(f"批量删除 ({count}篇)", self.batch_delete_selected)
+            menu.addAction(f"批量打标签 ({count}篇)", self.batch_tag_selected)
+
         action = menu.exec(self.table_view.viewport().mapToGlobal(position))
-        
-        if action == view_action:
-            self.view_selected()
-        elif action == edit_action:
-            self.edit_selected()
-        elif action == delete_action:
-            self.delete_selected()
     
     def new_diary(self):
         """新建日记"""
@@ -355,6 +364,56 @@ class MainWindow(QMainWindow):
                 self.load_data()
                 QMessageBox.information(self, "成功", "日记已删除")
     
+    def batch_delete_selected(self):
+        """批量删除选中的日记"""
+        selected = self.table_view.selectionModel().selectedRows()
+        if not selected:
+            return
+
+        diaries = self.model.get_selected_diaries(selected)
+        if not diaries:
+            return
+
+        count = len(diaries)
+        reply = QMessageBox.question(
+            self,
+            "确认批量删除",
+            f"确定要删除这 {count} 篇日记吗？\n\n此操作不可恢复。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            result = self.controller.batch_delete_diaries([d.id for d in diaries])
+            self.load_data()
+            QMessageBox.information(
+                self, "完成",
+                f"成功删除 {result['succeeded']} 篇，失败 {result['failed']} 篇"
+            )
+
+    def batch_tag_selected(self):
+        """批量为选中的日记打标签"""
+        selected = self.table_view.selectionModel().selectedRows()
+        if not selected:
+            return
+
+        diaries = self.model.get_selected_diaries(selected)
+        if not diaries:
+            return
+
+        from views.dialogs.batch_tag_dialog import BatchTagDialog
+        dialog = BatchTagDialog(self.controller, diaries, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_tag_ids = dialog.get_selected_tag_ids()
+            if selected_tag_ids is not None:
+                result = self.controller.batch_assign_tags(
+                    [d.id for d in diaries], list(selected_tag_ids)
+                )
+                self.load_data()
+                QMessageBox.information(
+                    self, "完成",
+                    f"成功更新 {result['succeeded']} 篇，失败 {result['failed']} 篇"
+                )
+
     def toggle_theme(self):
         """切换主题"""
         self.current_theme = 'dark' if self.current_theme == 'light' else 'light'
