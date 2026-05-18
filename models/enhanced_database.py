@@ -14,11 +14,6 @@ from .repository.diary_operations import DiaryOperationsMixin
 from .repository.trash_mixin import TrashMixin
 from .migration_backup_manager import MigrationBackupManager
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 # 延迟导入服务模块（避免循环依赖）

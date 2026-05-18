@@ -15,10 +15,14 @@ from views.main_window import MainWindow
 from utils.theme_utils import apply_theme_to_app
 from models.enhanced_database import EnhancedDatabaseManager
 from config.config import get_db_path
+from config.logging_config import setup_logging
 
 
 def main():
     """主函数 - 使用本地数据库"""
+    # 初始化统一日志配置
+    setup_logging()
+
     # 使用配置管理器获取数据库路径
     db_path = get_db_path()
     
