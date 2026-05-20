@@ -219,6 +219,17 @@ class EnhancedDatabaseManager(
         """获取所有日记（按日期倒序），带标签信息"""
         return self.diary_content_service.get_all_diaries_with_tags(limit)
 
+    def get_diaries_by_date(self, date_str: str) -> List[Dict[str, Any]]:
+        """根据日期获取日记（LIKE 查询）
+
+        Args:
+            date_str: 日期字符串，格式如 '2026-05-20'
+
+        Returns:
+            该日期的所有日记
+        """
+        return self.diary_content_service.get_diaries_by_date(date_str)
+
     def get_diaries_with_limit(self, limit: int) -> List[Dict[str, Any]]:
         """获取指定数量的日记（按日期倒序）"""
         return self.diary_content_service.get_diaries_with_limit(limit)

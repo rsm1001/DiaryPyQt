@@ -170,6 +170,27 @@ class DiaryContentService:
         
         return self.db_manager._execute(query, params, fetch='all') or []
     
+    def get_diaries_by_date(self, date_str: str) -> List[Dict[str, Any]]:
+        """
+        根据日期获取日记（LIKE 查询，支持日期+时分秒）
+
+        Args:
+            date_str: 日期字符串，格式如 '2026-05-20'
+
+        Returns:
+            该日期的所有日记
+        """
+        query = "SELECT * FROM diaries WHERE date LIKE ? ORDER BY date DESC"
+        params = (f'{date_str}%',)
+
+        diaries = self.db_manager._execute(query, params, fetch='all') or []
+
+        # 附加标签信息
+        for diary in diaries:
+            diary['tags'] = self.db_manager.get_tags_by_diary_id(diary['id'])
+
+        return diaries
+
     def get_diaries_by_date_range(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
         """
         根据日期范围获取日记

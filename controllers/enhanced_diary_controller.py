@@ -189,6 +189,18 @@ class EnhancedDiaryController:
         """为日记分配一组标签（替换原有标签）"""
         return self.db_manager.assign_tags_to_diary(diary_id, tag_ids)
 
+    def get_diaries_by_date(self, date_str: str) -> List[Diary]:
+        """根据日期搜索日记（日期 LIKE 查询）
+
+        Args:
+            date_str: 日期字符串，格式如 '2026-05-20'
+
+        Returns:
+            该日期的所有日记
+        """
+        diaries_dicts = self.db_manager.get_diaries_by_date(date_str)
+        return [Diary.from_dict(d) for d in diaries_dicts]
+
     def batch_delete_diaries(self, diary_ids: List[int]) -> Dict[str, int]:
         """批量移动日记到垃圾桶
 
