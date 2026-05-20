@@ -1,78 +1,29 @@
 """
 主窗口 - PyQt6版本
 """
-import sys
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QSplitter, QTableWidget, QTableWidgetItem, QHeaderView,
                             QToolBar, QStatusBar, QMenuBar, QMenu, QFileDialog,
                             QMessageBox, QDialog, QTextEdit, QLabel, QPushButton,
                             QTabWidget, QFrame, QScrollArea, QGroupBox, QListWidget,
                             QListWidgetItem, QInputDialog, QLineEdit, QCheckBox, QTableView, QAbstractItemView,
-                            QCalendarWidget, QSizePolicy)
-from PyQt6.QtCore import Qt, QModelIndex, pyqtSignal, QTimer, QDate, QRect
-from PyQt6.QtGui import QAction, QIcon, QFont, QKeySequence, QPainter, QBrush, QPen, QColor
-
-
-class HiddenMonthCalendar(QCalendarWidget):
-    """隐藏非当月日期的日历控件，支持标记有日记的日期"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._diary_dates: set = set()  # 有日记的日期集合，格式 "yyyy-MM-dd"
-
-    def set_diary_dates(self, dates: set):
-        """设置有日记的日期集合
-
-        Args:
-            dates: 日期字符串集合，格式 "yyyy-MM-dd"
-        """
-        self._diary_dates = dates
-        self.update()
-
-    def paintCell(self, painter: QPainter, rect: QRect, date: QDate):
-        """重写绘制单元格，只显示当月日期，有日记的日期高亮"""
-        current_year = self.yearShown()
-        current_month = self.monthShown()
-        if date.year() != current_year or date.month() != current_month:
-            painter.fillRect(rect, self.palette().base())
-            return
-
-        # 检查该日期是否有日记
-        date_str = date.toString("yyyy-MM-dd")
-        has_diary = date_str in self._diary_dates
-
-        if has_diary:
-            # 有日记：绘制淡蓝色背景圆圈 + 蓝色数字
-            painter.save()
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-            # 绘制背景圆
-            circle_rect = rect.adjusted(4, 4, -4, -4)
-            painter.setBrush(QBrush(QColor(77, 171, 247, 40)))  # 淡蓝背景
-            painter.setPen(QPen(QColor(77, 171, 247), 1.5))
-            painter.drawEllipse(circle_rect)
-
-            # 绘制数字
-            painter.setPen(QColor(33, 110, 232))  # 蓝色数字
-            painter.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.Bold))
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(date.day()))
-            painter.restore()
-        else:
-            # 无日记：默认绘制
-            super().paintCell(painter, rect, date)
+                            QSizePolicy)
+from PyQt6.QtCore import Qt, QModelIndex, pyqtSignal, QTimer, QDate
+from PyQt6.QtGui import QAction, QIcon, QFont, QKeySequence
 
 from models.entities.diary import Diary
-from models.table_models.diary_table_model import DiaryTableModel  # 导入解耦后的模型
+from models.table_models.diary_table_model import DiaryTableModel
 from controllers.enhanced_diary_controller import EnhancedDiaryController
 from utils.theme_utils import ThemeManager
-from utils.formatters import format_tags_html  # 导入解耦的格式化工具
+from utils.formatters import format_tags_html
 from widgets.TagSelectorWidget import TagSelectorWidget
-from views.components.toolbar import MainToolBar  # 导入解耦的工具栏组件
-from views.components.menu_bar import MainMenuBar  # 导入解耦的菜单栏组件
-from views.search_dialog import SearchDialog  # 导入解耦的搜索对话框
-from views.dialogs.diary_dialogs import DiaryEditDialog, DiaryViewDialog  # 导入解耦的对话框
-from views.dialogs.trash_dialog import TrashDialog  # 导入垃圾桶对话框
-from views.delegates.tag_delegate import TagDelegate  # 导入标签委托
+from views.components.toolbar import MainToolBar
+from views.components.menu_bar import MainMenuBar
+from views.components.calendar_panel import CalendarPanelFactory, HiddenMonthCalendar
+from views.search_dialog import SearchDialog
+from views.dialogs.diary_dialogs import DiaryEditDialog, DiaryViewDialog
+from views.dialogs.trash_dialog import TrashDialog
+from views.delegates.tag_delegate import TagDelegate
 
 
 
@@ -125,8 +76,13 @@ class MainWindow(QMainWindow):
         top_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # 创建日历面板（左侧）
-        calendar_panel = self._create_calendar_panel()
+        calendar_panel = CalendarPanelFactory.create_calendar_panel(
+            self,
+            on_date_selected=self._on_date_selected,
+            on_show_all=self._show_all_diaries
+        )
         calendar_panel.setFixedWidth(260)
+        self.calendar_panel = calendar_panel
         top_splitter.addWidget(calendar_panel)
 
         # 日记列表表格 - 使用QTableView配合自定义模型
@@ -227,146 +183,29 @@ class MainWindow(QMainWindow):
         # 连接信号
         self.table_view.clicked.connect(self.on_table_clicked)
         self.table_view.customContextMenuRequested.connect(self.show_context_menu)
-    
-    def _create_calendar_panel(self) -> QWidget:
-        """创建日历面板（左侧边栏）"""
-        panel = QWidget()
-        panel.setMaximumWidth(280)
-        panel.setMinimumWidth(220)
-        panel.setStyleSheet("""
-            QWidget#CalendarPanel {
-                background-color: #f8f9fa;
-                border-right: 1px solid #dee2e6;
-            }
-        """)
-        panel.setObjectName("CalendarPanel")
 
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+    def _on_date_selected(self, date_str: str):
+        """日历日期选择事件
 
-        # 标题
-        title = QLabel("📅 日历查询")
-        title.setStyleSheet("""
-            font-weight: bold;
-            font-size: 14px;
-            color: #495057;
-            padding: 8px;
-            background-color: #e9ecef;
-            border-radius: 6px;
-        """)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
-
-        # 日历组件
-        self.calendar = HiddenMonthCalendar()
-        self.calendar.setGridVisible(False)
-        self.calendar.setStyleSheet("""
-            QCalendarWidget {
-                background-color: white;
-                border: 1px solid #dee2e6;
-                border-radius: 8px;
-            }
-            QCalendarWidget QToolButton {
-                background-color: transparent;
-                color: #495057;
-                font-weight: bold;
-                padding: 5px;
-                border-radius: 4px;
-            }
-            QCalendarWidget QToolButton:hover {
-                background-color: #e9ecef;
-            }
-            QCalendarWidget QMenu {
-                background-color: white;
-                border: 1px solid #dee2e6;
-            }
-            QCalendarWidget QSpinBox {
-                background-color: white;
-            }
-            QCalendarWidget QAbstractItemView {
-                background-color: white;
-                selection-background-color: #4dabf7;
-                selection-color: white;
-                border: none;
-            }
-            QCalendarWidget QAbstractItemView::item {
-                padding: 4px;
-                border-radius: 4px;
-            }
-            QCalendarWidget QAbstractItemView::item:hover {
-                background-color: #e7f5ff;
-            }
-            QCalendarWidget QTableView {
-                border: none;
-            }
-            QCalendarWidget QTableView::section {
-                background-color: #f1f3f5;
-                font-weight: bold;
-                color: #495057;
-            }
-        """)
-        self.calendar.clicked.connect(self._on_date_selected)
-        layout.addWidget(self.calendar)
-
-        # 分隔线
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("background-color: #dee2e6;")
-        layout.addWidget(line)
-
-        # 当前选中日期标签
-        self.date_filter_label = QLabel("全部日记")
-        self.date_filter_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.date_filter_label.setStyleSheet("""
-            color: #868e96;
-            font-size: 12px;
-            padding: 6px;
-        """)
-        layout.addWidget(self.date_filter_label)
-
-        # 显示全部按钮
-        self.show_all_btn = QPushButton("显示全部日记")
-        self.show_all_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4dabf7;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 10px 16px;
-                font-weight: bold;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #339af0;
-            }
-            QPushButton:pressed {
-                background-color: #228be6;
-            }
-        """)
-        self.show_all_btn.clicked.connect(self._show_all_diaries)
-        layout.addWidget(self.show_all_btn)
-
-        layout.addStretch()
-
-        return panel
-
-    def _on_date_selected(self, date):
-        """日历日期选择事件"""
-        date_str = date.toString("yyyy-MM-dd")
+        Args:
+            date_str: 日期字符串，格式 "yyyy-MM-dd"
+        """
         self.current_date_filter = date_str
         diaries = self.controller.get_diaries_by_date(date_str)
         self.model.update_data(diaries)
-        self.date_filter_label.setText(f"📆 {date_str}")
-        self.date_filter_label.setStyleSheet("color: #228be6; font-size: 12px; padding: 6px; font-weight: bold;")
+        # 更新日历面板的日期过滤标签
+        date_filter_label = self.calendar_panel._date_filter_label
+        date_filter_label.setText(f"📆 {date_str}")
+        date_filter_label.setStyleSheet("color: #228be6; font-size: 12px; padding: 6px; font-weight: bold;")
         self.update_status_bar()
 
     def _show_all_diaries(self):
         """显示全部日记"""
         self.current_date_filter = None
         self.load_data()
-        self.date_filter_label.setText("全部日记")
-        self.date_filter_label.setStyleSheet("color: #868e96; font-size: 12px; padding: 6px;")
+        date_filter_label = self.calendar_panel._date_filter_label
+        date_filter_label.setText("全部日记")
+        date_filter_label.setStyleSheet("color: #868e96; font-size: 12px; padding: 6px;")
 
     def center_on_screen(self):
         """使窗口居中于屏幕"""
@@ -401,7 +240,7 @@ class MainWindow(QMainWindow):
                 # 提取日期部分，格式为 "YYYY-MM-DD"
                 date_part = diary.date.split(' ')[0] if ' ' in diary.date else diary.date
                 diary_dates.add(date_part)
-        self.calendar.set_diary_dates(diary_dates)
+        self.calendar_panel._calendar.set_diary_dates(diary_dates)
     
     def update_status_bar(self):
         """更新状态栏"""
