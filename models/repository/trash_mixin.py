@@ -426,28 +426,37 @@ class TrashMixin:
         from models.config.db_config import get_db_config
         max_size = get_db_config().get_trash_cache_size()
 
-        current_count = self.get_trash_count()
-        if current_count <= max_size:
-            return
+        conn = self._get_trash_connection()
+        with self._trash_lock:
+            cursor = conn.cursor()
+            cursor.execute("BEGIN")
+            try:
+                cursor.execute("SELECT COUNT(*) as count FROM trash_diaries")
+                row = cursor.fetchone()
+                current_count = row['count'] if row else 0
 
-        # 计算需要删除的数量
-        delete_count = current_count - max_size
+                if current_count <= max_size:
+                    conn.commit()
+                    return
 
-        # 删除最早的（deleted_at 最老）的条目
-        self._trash_execute(
-            """
-            DELETE FROM trash_diaries
-            WHERE id IN (
-                SELECT id FROM trash_diaries
-                ORDER BY deleted_at ASC
-                LIMIT ?
-            )
-            """,
-            (delete_count,),
-            fetch='rowcount'
-        )
-
-        logger.info(f"垃圾桶容量超限，已自动淘汰最早的 {delete_count} 条记录")
+                delete_count = current_count - max_size
+                cursor.execute(
+                    """
+                    DELETE FROM trash_diaries
+                    WHERE id IN (
+                        SELECT id FROM trash_diaries
+                        ORDER BY deleted_at ASC
+                        LIMIT ?
+                    )
+                    """,
+                    (delete_count,)
+                )
+                conn.commit()
+                logger.info(f"垃圾桶容量超限，已自动淘汰最早的 {delete_count} 条记录")
+            except Exception:
+                conn.rollback()
+                logger.error("垃圾桶容量强制执行失败")
+                raise
 
     # ============================================================
     # 双击恢复快捷方法
