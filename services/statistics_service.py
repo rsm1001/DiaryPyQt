@@ -230,14 +230,17 @@ class StatisticsService:
         today = datetime.now().strftime('%Y-%m-%d')
         yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
         
+        yesterday_start = yesterday + ' 00:00:00'
+        today_start = today + ' 00:00:00'
+
         # 1. 计算昨日查看总数 - 查询 view_log 表获取昨天实际的查看次数
         yesterday_result = self.db_manager._execute(
             """
             SELECT COUNT(*) as total_views
             FROM view_log
-            WHERE date(viewed_at) = ?
+            WHERE viewed_at >= ? AND viewed_at < ?
             """,
-            (yesterday,),
+            (yesterday_start, today_start),
             fetch='one'
         )
         yesterday_total = yesterday_result['total_views'] if yesterday_result else 0
@@ -274,13 +277,16 @@ class StatisticsService:
             今日查看次数
         """
         today = datetime.now().strftime('%Y-%m-%d')
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+        today_start = today + ' 00:00:00'
+        tomorrow_start = tomorrow + ' 00:00:00'
         result = self.db_manager._execute(
             """
             SELECT COUNT(*) as total_views
             FROM view_log
-            WHERE date(viewed_at) = ?
+            WHERE viewed_at >= ? AND viewed_at < ?
             """,
-            (today,),
+            (today_start, tomorrow_start),
             fetch='one'
         )
         return result['total_views'] if result else 0

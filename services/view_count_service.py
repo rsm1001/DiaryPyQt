@@ -239,10 +239,12 @@ class ViewCountService:
         # 计算昨天的日期
         yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
         
-        # 删除昨天之前的所有日志
+        yesterday_start = yesterday + ' 00:00:00'
+
+        # 删除昨天之前的所有日志（使用范围查询替代 date() 函数，命中索引）
         rowcount = self.db_manager._execute(
-            "DELETE FROM view_log WHERE date(viewed_at) < ?",
-            (yesterday,),
+            "DELETE FROM view_log WHERE viewed_at < ?",
+            (yesterday_start,),
             fetch='rowcount'
         )
         

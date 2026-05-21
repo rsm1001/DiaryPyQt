@@ -195,12 +195,19 @@ class EnhancedDatabaseManager(
         )
 
         # ---- 索引 ----
+        cursor.execute('DROP INDEX IF EXISTS idx_diaries_date')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_date ON diaries(date)')
+        cursor.execute('DROP INDEX IF EXISTS idx_diaries_view_count')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_view_count ON diaries(view_count)')
+        cursor.execute('DROP INDEX IF EXISTS idx_diaries_content')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_content ON diaries(content)')
+        cursor.execute('DROP INDEX IF EXISTS idx_diary_tags_diary_id')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_diary_tags_diary_id ON diary_tags(diary_id)')
+        cursor.execute('DROP INDEX IF EXISTS idx_diary_tags_tag_id')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_diary_tags_tag_id ON diary_tags(tag_id)')
+        cursor.execute('DROP INDEX IF EXISTS idx_view_log_viewed_at')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_viewed_at ON view_log(viewed_at)')
+        cursor.execute('DROP INDEX IF EXISTS idx_view_log_diary_id')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_diary_id ON view_log(diary_id)')
 
         # ---- 性能优化PRAGMA ----
