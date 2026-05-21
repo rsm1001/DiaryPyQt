@@ -81,10 +81,16 @@ class MainMenuBar:
     def _create_view_menu(self, menubar: QMenuBar):
         """创建视图菜单"""
         view_menu = menubar.addMenu('视图')
-        
+
         theme_action = QAction('切换主题', self.main_window)
         theme_action.triggered.connect(self.main_window.toggle_theme)
         view_menu.addAction(theme_action)
+
+        view_menu.addSeparator()
+
+        column_action = QAction('自定义列表列...', self.main_window)
+        column_action.triggered.connect(self.main_window.show_column_settings)
+        view_menu.addAction(column_action)
     
     def _create_tools_menu(self, menubar: QMenuBar):
         """创建工具菜单"""

@@ -1,6 +1,7 @@
 """
 日记表格模型 - PyQt6版本
 从 main_window.py 解耦出来的独立模型
+支持动态列配置
 """
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PyQt6.QtGui import QFont
@@ -8,59 +9,84 @@ from models.entities.diary import Diary
 
 
 class DiaryTableModel(QAbstractTableModel):
-    """日记表格模型 - 从MainWindow解耦出来的独立模型"""
+    """日记表格模型 - 支持动态列配置"""
 
-    def __init__(self, diaries=None, parent=None):
+    # 列 ID 到 data() 中数据获取逻辑的映射
+    COLUMN_DATA_MAP = {
+        'id': lambda diary: str(diary.id),
+        'date': lambda diary: diary.date,
+        'views': lambda diary: str(diary.view_count),
+        'tags': lambda diary: ", ".join([tag['name'] for tag in diary.tags]) if (hasattr(diary, 'tags') and diary.tags) else "无标签",
+        'preview': lambda diary: diary.content[:50] + "..." if len(diary.content) > 50 else diary.content,
+    }
+
+    def __init__(self, config_manager=None, diaries=None, parent=None):
+        """
+        初始化日记表格模型
+
+        Args:
+            config_manager: 列配置管理器，用于动态获取列配置
+            diaries: 初始日记列表
+            parent: 父对象
+        """
         super().__init__(parent)
+        self.config_manager = config_manager
         self.diaries = diaries or []
-        self.headers = ['ID', '日期', '查看次数', '标签', '内容预览']
+
+    @property
+    def headers(self):
+        """获取当前可见列的表头列表"""
+        if self.config_manager:
+            return self.config_manager.get_headers()
+        return ['ID', '日期', '查看次数', '标签', '内容预览']
 
     def rowCount(self, parent=QModelIndex()):
         return len(self.diaries)
 
     def columnCount(self, parent=QModelIndex()):
-        return len(self.headers)
+        if self.config_manager:
+            return self.config_manager.get_column_count()
+        return 5
+
+    def _get_col_id_by_visual_index(self, visual_index):
+        """根据视觉索引获取列 ID"""
+        if self.config_manager:
+            return self.config_manager.get_col_id_by_visual_index(visual_index)
+        # 默认列 ID 列表
+        default_ids = ['id', 'date', 'views', 'tags', 'preview']
+        if 0 <= visual_index < len(default_ids):
+            return default_ids[visual_index]
+        return None
+
+    def _get_alignment(self, col_id):
+        """获取列对齐方式"""
+        # ID、查看次数居中，日期居中，标签居中，内容左对齐
+        center_cols = {'id', 'views', 'date', 'tags'}
+        if col_id in center_cols:
+            return Qt.AlignmentFlag.AlignCenter
+        return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid() or index.row() >= len(self.diaries):
             return None
 
         diary = self.diaries[index.row()]
+        col_id = self._get_col_id_by_visual_index(index.column())
 
         if role == Qt.ItemDataRole.DisplayRole:
-            col = index.column()
-            if col == 0:  # ID
-                return str(diary.id)
-            elif col == 1:  # 日期
-                return diary.date
-            elif col == 2:  # 查看次数
-                return str(diary.view_count)
-            elif col == 3:  # 标签
-                if hasattr(diary, 'tags') and diary.tags:
-                    # 只显示标签名称，用逗号分隔
-                    return ", ".join([tag['name'] for tag in diary.tags])
-                return "无标签"  # 委托会将其渲染为短横线
-            elif col == 4:  # 内容预览
-                content = diary.content
-                return content[:50] + "..." if len(content) > 50 else content
+            if col_id and col_id in self.COLUMN_DATA_MAP:
+                return self.COLUMN_DATA_MAP[col_id](diary)
         elif role == Qt.ItemDataRole.UserRole:
             return diary
         elif role == Qt.ItemDataRole.TextAlignmentRole:
-            # 设置对齐方式：ID、查看次数居中，日期居中，内容左对齐
-            col = index.column()
-            if col in [0, 2]:  # ID 和 查看次数 居中
-                return Qt.AlignmentFlag.AlignCenter
-            elif col in [1, 3]:  # 日期和标签 居中
-                return Qt.AlignmentFlag.AlignCenter
-            elif col in [4]:  # 内容预览 左对齐
-                return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            if col_id:
+                return self._get_alignment(col_id)
         elif role == Qt.ItemDataRole.ToolTipRole:
             # 鼠标悬停时显示日记完整内容（不计入查看次数）
             return diary.content
         elif role == Qt.ItemDataRole.FontRole:
-            # 设置字体，使表格更美观
             font = QFont()
-            if index.column() in [3, 4]:  # 标签和内容预览列使用较小字体
+            if col_id in {'tags', 'preview'}:
                 font.setPointSize(9)
             else:
                 font.setPointSize(10)
@@ -70,7 +96,9 @@ class DiaryTableModel(QAbstractTableModel):
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
-            return self.headers[section]
+            headers = self.headers
+            if 0 <= section < len(headers):
+                return headers[section]
         elif role == Qt.ItemDataRole.TextAlignmentRole and orientation == Qt.Orientation.Horizontal:
             return Qt.AlignmentFlag.AlignCenter
         return None
@@ -96,3 +124,7 @@ class DiaryTableModel(QAbstractTableModel):
                 if diary:
                     selected_diaries.append(diary)
         return selected_diaries
+
+    def refresh_headers(self):
+        """刷新表头（当配置改变时调用）"""
+        self.headerDataChanged.emit(Qt.Orientation.Horizontal, 0, self.columnCount() - 1)

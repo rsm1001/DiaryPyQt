@@ -10,6 +10,7 @@ from views.dialogs.diary_action_helper import DiaryActionHelper, AboutDialog
 from views.dialogs.test_dialog_helper import TestDialogHelper
 from views.dialogs.statistics_dialog import StatisticsDialog
 from views.dialogs.import_export_helper import ImportExportHelper
+from views.dialogs.column_settings_dialog import ColumnSettingsDialog
 from views.test_runner_thread import TestRunnerThread
 
 from models.table_models.diary_table_model import DiaryTableModel
@@ -23,6 +24,7 @@ from views.components.detail_panel import DetailPanel
 from views.components.status_bar_manager import StatusBarManager
 from views.components.table_view_manager import TableViewManager
 from views.components.context_menu_builder import ContextMenuBuilder, ContextMenuFactory
+from views.components.column_config_manager import ColumnConfigManager
 from views.search_dialog import SearchDialog
 from views.dialogs.diary_dialogs import DiaryEditDialog, DiaryViewDialog
 from views.dialogs.trash_dialog import TrashDialog
@@ -45,6 +47,9 @@ class MainWindow(QMainWindow):
 
         # 启动时清理旧查看日志
         self.controller.cleanup_old_view_logs()
+
+        # 初始化列配置管理器
+        self.column_config_manager = ColumnConfigManager()
 
         # 初始化组件管理器
         self.toolbar_manager = MainToolBar(self)
@@ -89,10 +94,10 @@ class MainWindow(QMainWindow):
         top_splitter.addWidget(calendar_panel)
 
         # 创建表格视图
-        self.model = DiaryTableModel()
+        self.model = DiaryTableModel(self.column_config_manager)
         self.table_view = QTableView()
-        self.table_manager = TableViewManager(self.table_view, self.model)
-        self.table_manager.set_item_delegate(3, TagDelegate(self.table_view))
+        self.table_manager = TableViewManager(self.table_view, self.model, self.column_config_manager)
+        self.table_manager.set_tag_delegate_by_id(TagDelegate(self.table_view))
 
         top_splitter.addWidget(self.table_view)
         central_layout.addWidget(top_splitter, 3)
@@ -344,6 +349,14 @@ class MainWindow(QMainWindow):
         """应用主题"""
         theme_manager = ThemeManager()
         theme_manager.apply_theme(self, self.current_theme)
+
+    def show_column_settings(self):
+        """显示列设置对话框"""
+        dialog = ColumnSettingsDialog(self.column_config_manager, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # 重新应用配置到表格
+            self.table_manager.apply_config()
+            logger.info("列设置已更新")
 
     def show_statistics(self):
         """显示统计信息"""
