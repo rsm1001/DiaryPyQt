@@ -70,8 +70,10 @@ class EnhancedDatabaseManager(
             db_path = os.path.join(project_root, "data", "diary.db")
 
         self._db_path = db_path
-        self._db_local = threading.local()
         self._db_lock = threading.RLock()
+
+        # 初始化读写分离连接池
+        self._init_pool()
 
         # 服务占位（延迟初始化）
         self.migration_backup_manager: Optional[MigrationBackupManager] = None
@@ -114,7 +116,7 @@ class EnhancedDatabaseManager(
 
     def _init_database(self):
         """初始化数据库表、索引和性能配置"""
-        conn = self._get_connection()
+        conn = self._get_write_connection()
         cursor = conn.cursor()
 
         # ---- 日记主表 ----
@@ -289,16 +291,10 @@ class EnhancedDatabaseManager(
     # -------------------------------------------------------------------------
 
     def close(self):
-        """关闭数据库连接"""
-        if hasattr(self._db_local, 'connection') and self._db_local.connection:
-            self._db_local.connection.close()
-            self._db_local.connection = None
-            logger.info("数据库连接已关闭")
-
-        if hasattr(self._db_local, 'trash_connection') and self._db_local.trash_connection:
-            self._db_local.trash_connection.close()
-            self._db_local.trash_connection = None
-            logger.info("垃圾桶数据库连接已关闭")
+        """关闭数据库连接池"""
+        self._close_pool()
+        self._close_trash_pool()
+        logger.info("数据库连接池已关闭")
 
 
 # =============================================================================

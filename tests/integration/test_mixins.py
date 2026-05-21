@@ -28,11 +28,17 @@ def temp_db_manager(temp_db_path):
 class TestConnectionMixin:
     """ConnectionMixin 连接管理集成测试"""
 
-    def test_get_connection_returns_sqlite_connection(self, temp_db_manager):
-        """_get_connection应返回sqlite3.Connection"""
-        conn = temp_db_manager._get_connection()
+    def test_get_write_connection_returns_sqlite_connection(self, temp_db_manager):
+        """_get_write_connection应返回sqlite3.Connection"""
+        conn = temp_db_manager._get_write_connection()
 
         assert isinstance(conn, sqlite3.Connection)
+
+    def test_acquire_read_connection(self, temp_db_manager):
+        """测试从连接池获取读连接"""
+        with temp_db_manager._acquire_read_connection() as (conn, lock):
+            assert isinstance(conn, sqlite3.Connection)
+            assert isinstance(lock, type(temp_db_manager._read_pool[0][1]))
 
     def test_execute_insert_and_select(self, temp_db_manager):
         """测试基本的INSERT和SELECT操作"""

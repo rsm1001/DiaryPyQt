@@ -4,6 +4,7 @@
 """
 import sqlite3
 import os
+import threading
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional, Any, Tuple
@@ -19,64 +20,78 @@ class TrashMixin:
     # 垃圾桶数据库初始化
     # ============================================================
 
+    def _init_trash_pool(self):
+        """初始化垃圾桶数据库连接池（单连接）"""
+        from models.config.db_config import get_db_config
+        trash_db_path = get_db_config().get_trash_db_path()
+        os.makedirs(os.path.dirname(trash_db_path) or '.', exist_ok=True)
+
+        self._trash_conn = sqlite3.connect(
+            trash_db_path,
+            check_same_thread=False,
+            isolation_level=None
+        )
+        self._trash_conn.execute("PRAGMA foreign_keys = ON")
+        self._trash_conn.row_factory = sqlite3.Row
+        self._trash_lock = threading.Lock()
+
+    def _close_trash_pool(self):
+        """关闭垃圾桶数据库连接"""
+        if hasattr(self, '_trash_conn') and self._trash_conn:
+            try:
+                self._trash_conn.close()
+            except Exception as e:
+                logger.warning(f"关闭垃圾桶连接失败: {e}")
+            self._trash_conn = None
+
     def _get_trash_connection(self) -> sqlite3.Connection:
-        """获取线程本地的垃圾桶数据库连接"""
-        if not hasattr(self._db_local, 'trash_connection') or self._db_local.trash_connection is None:
-            from models.config.db_config import get_db_config
-            trash_db_path = get_db_config().get_trash_db_path()
-            # 确保目录存在
-            os.makedirs(os.path.dirname(trash_db_path) or '.', exist_ok=True)
-            self._db_local.trash_connection = sqlite3.connect(
-                trash_db_path,
-                check_same_thread=False,
-                isolation_level=None  # 自动提交模式
-            )
-            self._db_local.trash_connection.execute("PRAGMA foreign_keys = ON")
-            self._db_local.trash_connection.row_factory = sqlite3.Row
-        return self._db_local.trash_connection
+        """获取垃圾桶数据库连接"""
+        if not hasattr(self, '_trash_conn') or self._trash_conn is None:
+            self._init_trash_pool()
+        return self._trash_conn
 
     def _init_trash_database(self):
         """初始化垃圾桶数据库表"""
-        with self._get_trash_connection() as conn:
-            cursor = conn.cursor()
+        conn = self._get_trash_connection()
+        cursor = conn.cursor()
 
-            # 创建垃圾桶日记表
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS trash_diaries (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    original_id INTEGER,
-                    date TEXT NOT NULL,
-                    deleted_at TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    view_count INTEGER DEFAULT 0,
-                    last_viewed_at TEXT,
-                    source_db_path TEXT
-                )
-            ''')
+        # 创建垃圾桶日记表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS trash_diaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                original_id INTEGER,
+                date TEXT NOT NULL,
+                deleted_at TEXT NOT NULL,
+                content TEXT NOT NULL,
+                view_count INTEGER DEFAULT 0,
+                last_viewed_at TEXT,
+                source_db_path TEXT
+            )
+        ''')
 
-            # 创建垃圾桶标签表
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS trash_tags (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    trash_diary_id INTEGER NOT NULL,
-                    name TEXT NOT NULL,
-                    FOREIGN KEY (trash_diary_id) REFERENCES trash_diaries(id) ON DELETE CASCADE
-                )
-            ''')
+        # 创建垃圾桶标签表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS trash_tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trash_diary_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                FOREIGN KEY (trash_diary_id) REFERENCES trash_diaries(id) ON DELETE CASCADE
+            )
+        ''')
 
-            # 创建索引
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_trash_deleted_at ON trash_diaries(deleted_at)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_trash_content ON trash_diaries(content)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_trash_original_id ON trash_diaries(original_id)')
+        # 创建索引
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_trash_deleted_at ON trash_diaries(deleted_at)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_trash_content ON trash_diaries(content)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_trash_original_id ON trash_diaries(original_id)')
 
-            # 启用WAL模式
-            cursor.execute('PRAGMA journal_mode=WAL')
-            cursor.execute('PRAGMA synchronous=NORMAL')
-            cursor.execute('PRAGMA cache_size=10000')
-            cursor.execute('PRAGMA temp_store=memory')
+        # 启用WAL模式
+        cursor.execute('PRAGMA journal_mode=WAL')
+        cursor.execute('PRAGMA synchronous=NORMAL')
+        cursor.execute('PRAGMA cache_size=10000')
+        cursor.execute('PRAGMA temp_store=memory')
 
-            conn.commit()
-            logger.info("垃圾桶数据库初始化完成")
+        conn.commit()
+        logger.info("垃圾桶数据库初始化完成")
 
     @contextmanager
     def _trash_transaction(self):
@@ -99,7 +114,7 @@ class TrashMixin:
         fetch: Optional[str] = None
     ) -> Optional[Any]:
         """执行垃圾桶数据库SQL查询"""
-        with self._lock:
+        with self._trash_lock:
             try:
                 with self._trash_transaction() as cursor:
                     cursor.execute(query, params)
@@ -144,8 +159,8 @@ class TrashMixin:
         # 获取日记的标签
         tags = self.get_tags_by_diary_id(diary_id)
 
-        # 同时开启两个数据库的事务
-        main_conn = self._get_connection()
+        # 获取主数据库写连接和垃圾桶连接
+        main_conn = self._get_write_connection()
         trash_conn = self._get_trash_connection()
 
         try:
@@ -154,7 +169,7 @@ class TrashMixin:
             trash_cursor = trash_conn.cursor()
             trash_cursor.execute(
                 """
-                INSERT INTO trash_diaries 
+                INSERT INTO trash_diaries
                 (original_id, date, deleted_at, content, view_count, last_viewed_at, source_db_path)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -227,8 +242,8 @@ class TrashMixin:
             fetch='all'
         )
 
-        # 同时操作两个数据库
-        main_conn = self._get_connection()
+        # 获取主数据库写连接和垃圾桶连接
+        main_conn = self._get_write_connection()
         trash_conn = self._get_trash_connection()
 
         try:
@@ -421,10 +436,10 @@ class TrashMixin:
         # 删除最早的（deleted_at 最老）的条目
         self._trash_execute(
             """
-            DELETE FROM trash_diaries 
+            DELETE FROM trash_diaries
             WHERE id IN (
-                SELECT id FROM trash_diaries 
-                ORDER BY deleted_at ASC 
+                SELECT id FROM trash_diaries
+                ORDER BY deleted_at ASC
                 LIMIT ?
             )
             """,
