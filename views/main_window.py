@@ -1,83 +1,84 @@
 """
 主窗口 - PyQt6版本
 """
-import subprocess
 import sys
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                            QSplitter, QTableWidget, QTableWidgetItem, QHeaderView,
-                            QToolBar, QStatusBar, QMenuBar, QMenu, QFileDialog,
-                            QMessageBox, QDialog, QTextEdit, QLabel, QPushButton,
-                            QTabWidget, QFrame, QScrollArea, QGroupBox, QListWidget,
-                            QListWidgetItem, QInputDialog, QLineEdit, QCheckBox, QTableView, QAbstractItemView,
-                            QSizePolicy)
-from PyQt6.QtCore import Qt, QModelIndex, pyqtSignal, QTimer, QDate, QThread
-from PyQt6.QtGui import QAction, QIcon, QFont, QKeySequence
+import logging
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                            QSplitter, QMessageBox, QDialog, QTableView, QStatusBar)
+from PyQt6.QtCore import Qt
+from views.dialogs.diary_action_helper import DiaryActionHelper, AboutDialog
+from views.dialogs.test_dialog_helper import TestDialogHelper
+from views.dialogs.statistics_dialog import StatisticsDialog
+from views.dialogs.import_export_helper import ImportExportHelper
+from views.test_runner_thread import TestRunnerThread
 
-from models.entities.diary import Diary
 from models.table_models.diary_table_model import DiaryTableModel
 from controllers.enhanced_diary_controller import EnhancedDiaryController
 from utils.theme_utils import ThemeManager
 from utils.formatters import format_tags_html
-from widgets.TagSelectorWidget import TagSelectorWidget
 from views.components.toolbar import MainToolBar
 from views.components.menu_bar import MainMenuBar
-from views.components.calendar_panel import CalendarPanelFactory, HiddenMonthCalendar
+from views.components.calendar_panel import CalendarPanelFactory
+from views.components.detail_panel import DetailPanel
+from views.components.status_bar_manager import StatusBarManager
+from views.components.table_view_manager import TableViewManager
+from views.components.context_menu_builder import ContextMenuBuilder, ContextMenuFactory
 from views.search_dialog import SearchDialog
 from views.dialogs.diary_dialogs import DiaryEditDialog, DiaryViewDialog
 from views.dialogs.trash_dialog import TrashDialog
+from views.dialogs.batch_tag_dialog import BatchTagDialog
 from views.delegates.tag_delegate import TagDelegate
 
-
-
+logger = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
     """主窗口"""
-    
+
     def __init__(self, db_path: str = None):
         super().__init__()
+        logger.info(f"主窗口初始化开始, db_path={db_path}")
         self.controller = EnhancedDiaryController(db_path)
         self.db_path = db_path
         self.current_theme = 'light'
-        self.current_date_filter = None  # 当前日期过滤
-        
-        # 启动时清理旧查看日志（只保留昨天和今天的记录）
+        self.current_date_filter = None
+
+        # 启动时清理旧查看日志
         self.controller.cleanup_old_view_logs()
-        
-        # 初始化UI组件管理器
+
+        # 初始化组件管理器
         self.toolbar_manager = MainToolBar(self)
         self.menu_manager = MainMenuBar(self)
-        
+        self.context_menu_builder = ContextMenuBuilder(self)
+
         self.init_ui()
         self.setup_connections()
         self.load_data()
         self.apply_theme()
-    
+        logger.info("主窗口初始化完成")
+
     def init_ui(self):
         """初始化用户界面"""
         self.setWindowTitle("日记管理系统 - PyQt版")
-        # 获取屏幕几何信息并居中显示
         screen_geometry = QApplication.primaryScreen().geometry()
         x = (screen_geometry.width() - 1000) // 2
         y = (screen_geometry.height() - 700) // 2
         self.setGeometry(x, y, 1000, 700)
-        
-        # 创建中央部件
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        # 主垂直布局
         central_layout = QVBoxLayout(central_widget)
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
 
-        # 创建工具栏（通过组件管理器）
+        # 创建工具栏
         self.toolbar_manager.create()
 
-        # 上部水平分割器（日历 | 表格）
+        # 上部分割器
         top_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # 创建日历面板（左侧）
+        # 创建日历面板
         calendar_panel = CalendarPanelFactory.create_calendar_panel(
             self,
             on_date_selected=self._on_date_selected,
@@ -87,119 +88,44 @@ class MainWindow(QMainWindow):
         self.calendar_panel = calendar_panel
         top_splitter.addWidget(calendar_panel)
 
-        # 日记列表表格 - 使用QTableView配合自定义模型
+        # 创建表格视图
         self.model = DiaryTableModel()
         self.table_view = QTableView()
-        self.table_view.setModel(self.model)
-
-        # 设置表头
-        header = self.table_view.horizontalHeader()
-        # 设置不同列的尺寸调整模式
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # ID列自适应内容
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # 日期列自适应内容
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # 查看次数列自适应内容
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)  # 标签列可调整
-        self.table_view.setColumnWidth(3, 80)  # 设置标签列默认宽度为80像素
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)  # 内容预览列拉伸填充剩余空间
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)  # 设置表头居中对齐
-
-        # 设置标签列的自定义委托
-        self.tag_delegate = TagDelegate(self.table_view)
-        self.table_view.setItemDelegateForColumn(3, self.tag_delegate)
-
-        # 固定行高，防止标签撑大表格
-        self.table_view.verticalHeader().setDefaultSectionSize(28)
-        self.table_view.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-
-        # 设置表格样式
-        self.table_view.setStyleSheet("""
-            QTableView {
-                gridline-color: #d3d3d3;
-                selection-background-color: #3ea6ff;
-                selection-color: white;
-            }
-            QHeaderView::section {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f2f2f2, stop:1 #e2e2e2);
-                padding: 4px;
-                border: 1px solid #d8d8d8;
-                font-weight: bold;
-                color: black;
-            }
-        """)
-
-        # 启用鼠标悬停提示（不计入查看次数）
-        self.table_view.setMouseTracking(True)
-        self.table_view.setToolTipDuration(999999)  # 不自动消失
-        self.table_view.viewport().setStyleSheet("""
-            QToolTip {
-                background-color: #fffde7;
-                color: #333333;
-                border: 2px solid #ffc107;
-                border-radius: 8px;
-                padding: 12px 16px;
-                font-size: 13px;
-                font-family: 'Microsoft YaHei', sans-serif;
-                max-width: 600px;
-            }
-        """)
-
-        # 设置选择行为
-        self.table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table_manager = TableViewManager(self.table_view, self.model)
+        self.table_manager.set_item_delegate(3, TagDelegate(self.table_view))
 
         top_splitter.addWidget(self.table_view)
-        central_layout.addWidget(top_splitter, 3)  # 上部占 3 份
+        central_layout.addWidget(top_splitter, 3)
 
-        # 底部区域（显示日记详情）
-        detail_widget = QWidget()
-        detail_widget.setMaximumHeight(180)  # 限制最大高度，避免挤压日历
-        detail_widget.setMinimumHeight(80)   # 保证最小高度
-        self.detail_widget = detail_widget
-        detail_layout = QVBoxLayout(detail_widget)
-        detail_layout.setContentsMargins(5, 5, 5, 5)
+        # 创建详情面板
+        self.detail_panel = DetailPanel()
+        self.detail_panel.set_max_height(180, 80)
+        central_layout.addWidget(self.detail_panel)
 
-        self.detail_label = QLabel("请选择一篇日记查看详情")
-        self.detail_label.setWordWrap(True)
-        self.detail_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.detail_label.setContentsMargins(10, 10, 10, 10)
-        self.detail_label.setStyleSheet("""
-            QLabel {
-                background-color: #f0f0f0;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                padding: 8px;
-            }
-        """)
-        detail_layout.addWidget(self.detail_label, 1)
+        # 创建状态栏
+        self.status_bar_manager = StatusBarManager(QStatusBar())
+        self.setStatusBar(self.status_bar_manager.status_bar)
 
-        central_layout.addWidget(detail_widget)  # 底部详情区域（stretch=1）
-
-        # 状态栏
-        self.status_bar = QStatusBar()
-        self.setStatusBar(self.status_bar)
-        
-        # 创建菜单栏（通过组件管理器）
+        # 创建菜单
         self.menu_manager.create()
-        
-        # 连接信号
-        self.table_view.clicked.connect(self.on_table_clicked)
-        self.table_view.customContextMenuRequested.connect(self.show_context_menu)
+        logger.debug("UI 组件初始化完成")
+
+    def setup_connections(self):
+        """设置信号连接"""
+        self.table_manager.connect_clicked(self.on_table_clicked)
+        self.table_manager.connect_context_menu(self.show_context_menu)
+        self.table_manager.connect_selection_changed(self.on_selection_changed)
 
     def _on_date_selected(self, date_str: str):
-        """日历日期选择事件
-
-        Args:
-            date_str: 日期字符串，格式 "yyyy-MM-dd"
-        """
+        """日历日期选择事件"""
         self.current_date_filter = date_str
         diaries = self.controller.get_diaries_by_date(date_str)
         self.model.update_data(diaries)
-        # 更新日历面板的日期过滤标签
         date_filter_label = self.calendar_panel._date_filter_label
         date_filter_label.setText(f"📆 {date_str}")
         date_filter_label.setStyleSheet("color: #228be6; font-size: 12px; padding: 6px; font-weight: bold;")
         self.update_status_bar()
+        logger.info(f"日期过滤: {date_str}")
 
     def _show_all_diaries(self):
         """显示全部日记"""
@@ -208,6 +134,7 @@ class MainWindow(QMainWindow):
         date_filter_label = self.calendar_panel._date_filter_label
         date_filter_label.setText("全部日记")
         date_filter_label.setStyleSheet("color: #868e96; font-size: 12px; padding: 6px;")
+        logger.debug("显示全部日记")
 
     def center_on_screen(self):
         """使窗口居中于屏幕"""
@@ -215,87 +142,70 @@ class MainWindow(QMainWindow):
         x = (screen_geometry.width() - self.width()) // 2
         y = (screen_geometry.height() - self.height()) // 2
         self.move(screen_geometry.x() + x, screen_geometry.y() + y)
-    
-
-    def setup_connections(self):
-        """设置信号连接"""
-        self.table_view.selectionModel().selectionChanged.connect(self.on_selection_changed)
 
     def on_selection_changed(self):
         """选择行变化时更新批量按钮状态"""
-        count = len(self.table_view.selectionModel().selectedRows())
+        count = self.table_manager.get_selected_count()
         self.toolbar_manager.set_batch_actions_enabled(count > 0)
-    
+        logger.debug(f"选中行数变化: {count}")
+
     def load_data(self):
         """加载日记数据"""
         diaries = self.controller.get_all_diaries(limit=25)
         self.model.update_data(diaries)
         self._update_calendar_diary_marks()
         self.update_status_bar()
+        logger.info(f"加载日记数据: {len(diaries)} 篇")
 
     def _update_calendar_diary_marks(self):
-        """更新日历上有日记的日期标记"""
+        """更新日历标记"""
         all_diaries = self.controller.get_all_diaries(limit=10000)
         diary_dates = set()
         for diary in all_diaries:
             if diary.date:
-                # 提取日期部分，格式为 "YYYY-MM-DD"
                 date_part = diary.date.split(' ')[0] if ' ' in diary.date else diary.date
                 diary_dates.add(date_part)
         self.calendar_panel._calendar.set_diary_dates(diary_dates)
-    
+        logger.debug(f"更新日历标记: {len(diary_dates)} 个日期")
+
     def update_status_bar(self):
         """更新状态栏"""
         stats = self.controller.get_statistics()
         daily_stats = self.controller.get_daily_stats()
         today_views = self.controller.get_today_total_views()
-        filter_info = f" | 日期过滤: {self.current_date_filter}" if self.current_date_filter else ""
-        self.status_bar.showMessage(f"总计: {stats['total']} 篇日记 | "
-                                  f"总查看次数: {stats['total_views']} | "
-                                  f"平均查看次数: {stats['avg_views']} | "
-                                  f"今日查看: {today_views} | "
-                                  f"昨日查看: {daily_stats['yesterday_total_views']} | "
-                                  f"历史最佳: {daily_stats['all_time_max_single_views']}{filter_info}")
-    
+        self.status_bar_manager.update_statistics(
+            stats, daily_stats, today_views, self.current_date_filter
+        )
+
     def on_table_clicked(self, index):
         """表格点击事件"""
-        if index.isValid():
-            diary = self.model.data(index, Qt.ItemDataRole.UserRole)
-            if diary:
-                # 构建标签HTML（使用解耦的格式化工具）
-                tags_html = format_tags_html(diary.tags if hasattr(diary, 'tags') else [])
-                
-                self.detail_label.setText(f"<b>ID:</b> {diary.id}<br>"
-                                        f"<b>日期:</b> {diary.date}<br>"
-                                        f"<b>查看次数:</b> {diary.view_count}<br>"
-                                        f"<b>标签:</b> {tags_html}<br><br>"
-                                        f"<b>内容:</b><br>{diary.content}")
-                
-                # 增加查看次数
-                self.controller.increment_view_count(diary.id)
-                self.load_data()  # 重新加载以更新查看次数
-    
+        diary = self.table_manager.get_selected_diary(index)
+        if diary:
+            tags_html = format_tags_html(diary.tags if hasattr(diary, 'tags') else [])
+            self.detail_panel.update_content(diary, tags_html)
+            self.controller.increment_view_count(diary.id)
+            self.load_data()
+            logger.info(f"查看日记: id={diary.id}")
+
     def show_context_menu(self, position):
         """显示右键菜单"""
-        selected = self.table_view.selectionModel().selectedRows()
-        count = len(selected)
-        menu = QMenu()
-
+        count = self.table_manager.get_selected_count()
         if count == 0:
             return
-        elif count == 1:
-            menu.addAction("查看", self.view_selected)
-            menu.addAction("编辑", self.edit_selected)
-            menu.addAction("删除", self.delete_selected)
-        else:
-            menu.addAction(f"查看 ({count}篇)", self.view_selected)
-            menu.addAction(f"编辑 ({count}篇)", self.edit_selected)
-            menu.addSeparator()
-            menu.addAction(f"批量删除 ({count}篇)", self.batch_delete_selected)
-            menu.addAction(f"批量打标签 ({count}篇)", self.batch_tag_selected)
 
-        action = menu.exec(self.table_view.viewport().mapToGlobal(position))
-    
+        handlers = {
+            'view': self.view_selected,
+            'edit': self.edit_selected,
+            'delete': self.delete_selected,
+            'batch_delete': self.batch_delete_selected,
+            'batch_tag': self.batch_tag_selected,
+        }
+
+        menu = ContextMenuFactory.create_context_menu(self, count, handlers)
+        if menu:
+            menu.exec(self.table_view.viewport().mapToGlobal(position))
+        logger.debug(f"显示右键菜单, 选中: {count} 篇")
+
     def new_diary(self):
         """新建日记"""
         dialog = DiaryEditDialog(self)
@@ -305,86 +215,65 @@ class MainWindow(QMainWindow):
             if content.strip():
                 diary = self.controller.add_diary(content)
                 if diary and selected_tag_ids:
-                    # 为新日记分配选中的标签
                     self.controller.assign_tags_to_diary(diary.id, selected_tag_ids)
                 self.load_data()
-    
+                logger.info("新建日记完成")
+
     def random_view(self):
         """随机查看日记"""
         diary_dict = self.controller.random_view_diary()
         if diary_dict:
-            # diary_dict 已经是 Diary 对象，无需再次转换
-            diary_obj = diary_dict
-            dialog = DiaryViewDialog(diary_obj, self, readonly=True)
+            dialog = DiaryViewDialog(diary_dict, self, readonly=True)
             dialog.exec()
-            # 增加查看次数
-            self.controller.increment_view_count(diary_obj.id)
+            self.controller.increment_view_count(diary_dict.id)
             self.load_data()
+            logger.info(f"随机查看日记: id={diary_dict.id}")
         else:
-            QMessageBox.information(self, "提示", "当前没有日记")
-    
+            DiaryActionHelper.show_no_diary(self)
+
     def random_delete(self):
-        """随机删除一篇日记（时间久远且查看次数多的优先）"""
+        """随机删除日记"""
         diary_dict = self.controller.get_diary_for_deletion()
         if not diary_dict:
-            QMessageBox.information(self, "提示", "没有可删除的日记")
+            DiaryActionHelper.show_no_diary(self, "没有可删除的日记")
             return
-        
-        # 准备详细的消息文本
-        content_preview = diary_dict.content[:200]  # 显示前200个字符
-        if len(diary_dict.content) > 200:
-            content_preview += "..."
-        
-        message = (f"即将随机删除一篇日记：\n\n"
-                  f"ID: {diary_dict.id}\n"
-                  f"日期: {diary_dict.date}\n"
-                  f"查看次数: {diary_dict.view_count}\n\n"
-                  f"内容:\n{content_preview}\n\n"
-                  f"确定要删除这条日记吗？")
-        
-        reply = QMessageBox.question(
-            self,
-            "确认删除",
-            message,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
+
+        if DiaryActionHelper.confirm_random_delete(self, diary_dict):
             self.controller.delete_diary_by_id(diary_dict.id)
             self.load_data()
-            QMessageBox.information(self, "成功", f"日记 ID:{diary_dict.id} 已删除")
-    
+            DiaryActionHelper.show_delete_success(self, diary_dict.id)
+            logger.info(f"删除日记: id={diary_dict.id}")
+
     def search_diary(self):
         """搜索日记"""
         dialog = SearchDialog(self.controller, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.load_data()
-    
+
     def view_selected(self):
         """查看选中日记"""
-        selected = self.table_view.selectionModel().selectedRows()
+        selected = self.table_manager.get_selected_rows()
         if not selected:
-            QMessageBox.warning(self, "警告", "请先选择一篇日记")
+            DiaryActionHelper.show_no_selection(self)
             return
-        
+
         index = selected[0]
-        diary = self.model.data(index, Qt.ItemDataRole.UserRole)
+        diary = self.table_manager.get_selected_diary(index)
         if diary:
             dialog = DiaryViewDialog(diary, self, readonly=True)
             dialog.exec()
-            # 增加查看次数并刷新显示
             self.controller.increment_view_count(diary.id)
             self.load_data()
-    
+
     def edit_selected(self):
         """编辑选中日记"""
-        selected = self.table_view.selectionModel().selectedRows()
+        selected = self.table_manager.get_selected_rows()
         if not selected:
-            QMessageBox.warning(self, "警告", "请先选择一篇日记")
+            DiaryActionHelper.show_no_selection(self)
             return
-        
+
         index = selected[0]
-        diary = self.model.data(index, Qt.ItemDataRole.UserRole)
+        diary = self.table_manager.get_selected_diary(index)
         if diary:
             dialog = DiaryEditDialog(self, diary)
             if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -392,35 +281,26 @@ class MainWindow(QMainWindow):
                 selected_tag_ids = dialog.get_selected_tag_ids()
                 if content.strip():
                     self.controller.update_diary(diary.id, content)
-                    # 更新日记的标签
                     self.controller.assign_tags_to_diary(diary.id, selected_tag_ids)
                     self.load_data()
-    
+
     def delete_selected(self):
         """删除选中日记"""
-        selected = self.table_view.selectionModel().selectedRows()
+        selected = self.table_manager.get_selected_rows()
         if not selected:
-            QMessageBox.warning(self, "警告", "请先选择一篇日记")
+            DiaryActionHelper.show_no_selection(self)
             return
-        
+
         index = selected[0]
-        diary = self.model.data(index, Qt.ItemDataRole.UserRole)
-        if diary:
-            reply = QMessageBox.question(
-                self,
-                "确认删除",
-                f"确定要删除日记 ID:{diary.id} 吗？\n\n内容: {diary.content[:50]}...",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            if reply == QMessageBox.StandardButton.Yes:
-                self.controller.delete_diary_by_id(diary.id)
-                self.load_data()
-                QMessageBox.information(self, "成功", "日记已删除")
-    
+        diary = self.table_manager.get_selected_diary(index)
+        if diary and DiaryActionHelper.confirm_delete(self, diary):
+            self.controller.delete_diary_by_id(diary.id)
+            self.load_data()
+            DiaryActionHelper.show_delete_success(self, diary.id)
+
     def batch_delete_selected(self):
-        """批量删除选中的日记"""
-        selected = self.table_view.selectionModel().selectedRows()
+        """批量删除"""
+        selected = self.table_manager.get_selected_rows()
         if not selected:
             return
 
@@ -429,24 +309,14 @@ class MainWindow(QMainWindow):
             return
 
         count = len(diaries)
-        reply = QMessageBox.question(
-            self,
-            "确认批量删除",
-            f"确定要删除这 {count} 篇日记吗？\n\n此操作不可恢复。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
+        if DiaryActionHelper.confirm_batch_delete(self, count):
             result = self.controller.batch_delete_diaries([d.id for d in diaries])
             self.load_data()
-            QMessageBox.information(
-                self, "完成",
-                f"成功删除 {result['succeeded']} 篇，失败 {result['failed']} 篇"
-            )
+            DiaryActionHelper.show_batch_result(self, result['succeeded'], result['failed'], "删除")
 
     def batch_tag_selected(self):
-        """批量为选中的日记打标签"""
-        selected = self.table_view.selectionModel().selectedRows()
+        """批量打标签"""
+        selected = self.table_manager.get_selected_rows()
         if not selected:
             return
 
@@ -454,7 +324,6 @@ class MainWindow(QMainWindow):
         if not diaries:
             return
 
-        from views.dialogs.batch_tag_dialog import BatchTagDialog
         dialog = BatchTagDialog(self.controller, diaries, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             selected_tag_ids = dialog.get_selected_tag_ids()
@@ -463,171 +332,58 @@ class MainWindow(QMainWindow):
                     [d.id for d in diaries], list(selected_tag_ids)
                 )
                 self.load_data()
-                QMessageBox.information(
-                    self, "完成",
-                    f"成功更新 {result['succeeded']} 篇，失败 {result['failed']} 篇"
-                )
+                DiaryActionHelper.show_batch_result(self, result['succeeded'], result['failed'], "更新")
 
     def toggle_theme(self):
         """切换主题"""
         self.current_theme = 'dark' if self.current_theme == 'light' else 'light'
         self.apply_theme()
-    
+        logger.info(f"切换主题: {self.current_theme}")
+
     def apply_theme(self):
         """应用主题"""
         theme_manager = ThemeManager()
         theme_manager.apply_theme(self, self.current_theme)
-    
+
     def show_statistics(self):
         """显示统计信息"""
-        stats = self.controller.get_statistics()
-        daily_stats = self.controller.get_daily_stats()
-        
-        if stats['total'] == 0:
-            QMessageBox.information(self, "统计", "暂无日记")
-            return
-        
-        stats_text = f"""统计信息：
-总计日记数：{stats['total']}
-总查看次数：{stats['total_views']}
-平均查看次数：{stats['avg_views']}
-昨日查看总数：{daily_stats['yesterday_total_views']}
-历史最佳单日：{daily_stats['all_time_max_single_views']} ({daily_stats['all_time_max_date'] if daily_stats['all_time_max_date'] else 'N/A'})
-
-最多查看的日记：
-ID: {stats['most_viewed']['id'] if stats['most_viewed'] else 'N/A'}
-查看次数: {stats['most_viewed']['view_count'] if stats['most_viewed'] else 'N/A'}
-内容: {stats['most_viewed']['content'][:30] + '...' if stats['most_viewed'] and len(stats['most_viewed']['content']) > 30 else (stats['most_viewed']['content'] if stats['most_viewed'] else 'N/A') if stats['most_viewed'] else 'N/A'}
-
-最少查看的日记：
-ID: {stats['least_viewed']['id'] if stats['least_viewed'] else 'N/A'}
-查看次数: {stats['least_viewed']['view_count'] if stats['least_viewed'] else 'N/A'}
-内容: {stats['least_viewed']['content'][:30] + '...' if stats['least_viewed'] and len(stats['least_viewed']['content']) > 30 else (stats['least_viewed']['content'] if stats['least_viewed'] else 'N/A') if stats['least_viewed'] else 'N/A'}"""
-        
-        QMessageBox.information(self, "统计信息", stats_text)
+        StatisticsDialog.show_statistics(self, self.controller)
 
     def run_tests(self):
         """运行单元测试"""
-        reply = QMessageBox.question(
-            self,
-            "运行测试",
-            "确定要运行所有单元测试吗？这可能需要一些时间。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-
-        if reply != QMessageBox.StandardButton.Yes:
+        if not TestDialogHelper.confirm_run_tests(self):
             return
 
-        # 获取项目根目录
         project_root = self.controller.db_manager.db_path.replace("\\", "/").rsplit("/data/", 1)[0]
         tests_dir = f"{project_root}/tests"
 
-        # 显示进度提示
-        self.statusBar().showMessage("正在运行测试...")
+        self.status_bar_manager.show_message("正在运行测试...")
 
-        # 创建后台线程执行测试
         self._test_thread = TestRunnerThread(tests_dir, sys.executable)
         self._test_thread.test_finished.connect(self._on_tests_finished)
         self._test_thread.start()
+        logger.info("启动测试线程")
 
     def _on_tests_finished(self, returncode: int, output: str):
-        """测试执行完成回调"""
-        self.statusBar().clearMessage()
-
-        # 提取关键信息
-        lines = output.split("\n")
-        summary_line = ""
-        for line in lines:
-            if "passed" in line or "failed" in line or "error" in line:
-                if "==" in line or "passed" in line:
-                    summary_line = line.strip()
-                    break
-
-        if returncode == 0:
-            QMessageBox.information(
-                self,
-                "测试结果",
-                f"所有测试通过！\n\n{summary_line}"
-            )
-        else:
-            # 截取最后100行输出
-            error_lines = output.split("\n")
-            error_output = "\n".join(error_lines[-100:])
-            QMessageBox.critical(
-                self,
-                "测试失败",
-                f"有测试用例失败！\n\n{summary_line}\n\n{error_output[:2000]}"
-            )
-
+        """测试完成回调"""
+        self.status_bar_manager.clear_message()
+        TestDialogHelper.show_test_result(self, returncode, output)
 
     def export_data(self):
         """导出数据"""
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "导出数据",
-            "",
-            "JSON Files (*.json);;All Files (*)"
-        )
-
-        if file_path:
-            if self.controller.export_to_json(file_path):
-                QMessageBox.information(self, "成功", "数据导出成功")
-            else:
-                QMessageBox.critical(self, "错误", "数据导出失败")
+        ImportExportHelper.export_data(self, self.controller)
 
     def import_data(self):
         """导入数据"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "导入数据",
-            "",
-            "JSON Files (*.json);;All Files (*)"
-        )
-
-        if file_path:
-            result = self.controller.migrate_from_json(file_path)
-            QMessageBox.information(self, "导入结果", f"成功导入 {result} 篇日记")
-            self.load_data()
+        ImportExportHelper.import_data(self, self.controller, self.load_data)
 
     def show_about(self):
         """显示关于对话框"""
-        QMessageBox.about(
-            self,
-            "关于",
-            "日记管理系统 PyQt版\n\n版本: 1.0\n作者: Assistant\n\n基于PyQt6开发的现代化日记管理系统。"
-        )
+        AboutDialog.show(self)
 
     def open_trash(self):
-        """打开垃圾桶对话框"""
+        """打开垃圾桶"""
         dialog = TrashDialog(self.controller, self)
         dialog.exec()
-        self.load_data()  # 恢复日记后刷新列表
-
-
-class TestRunnerThread(QThread):
-    """后台测试运行线程"""
-
-    test_finished = pyqtSignal(int, str)  # (returncode, output)
-
-    def __init__(self, tests_dir: str, python_executable: str):
-        super().__init__()
-        self.tests_dir = tests_dir
-        self.python_executable = python_executable
-
-    def run(self):
-        """在线程中执行测试"""
-        try:
-            result = subprocess.run(
-                [self.python_executable, "-m", "pytest", self.tests_dir, "-v", "--tb=short", "-q"],
-                capture_output=True,
-                text=True,
-                timeout=300
-            )
-            self.test_finished.emit(result.returncode, result.stdout + result.stderr)
-        except subprocess.TimeoutExpired:
-            self.test_finished.emit(-1, "测试运行超时（5分钟）")
-        except Exception as e:
-            self.test_finished.emit(-2, f"运行测试时出错：\n{str(e)}")
-
-
+        self.load_data()
+        logger.debug("打开垃圾桶")
