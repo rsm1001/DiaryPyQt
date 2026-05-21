@@ -10,7 +10,7 @@ USER.md
 MEMORY.md
 /.claude
 
-# Common ignores
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -32,6 +32,16 @@ wheels/
 .installed.cfg
 *.egg
 
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+*.cover
+.hypothesis/
+.coverage*
+
 # IDE
 .vscode/
 .idea/
@@ -41,3 +51,9 @@ wheels/
 # OS
 .DS_Store
 Thumbs.db
+
+# Data (keep diary.db but ignore temp files)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+!data/.gitkeep

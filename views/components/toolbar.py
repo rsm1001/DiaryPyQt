@@ -82,6 +82,15 @@ class MainToolBar:
 
         self.toolbar.addSeparator()
 
+        # 运行测试
+        self.test_action = QAction(QIcon(), '运行测试', self.main_window)
+        self.test_action.setShortcut('Ctrl+Shift+T')
+        self.test_action.setToolTip('运行日记管理系统的单元测试和集成测试（统计、权重计算、日记筛选等核心业务逻辑）')
+        self.test_action.triggered.connect(self.main_window.run_tests)
+        self.toolbar.addAction(self.test_action)
+
+        self.toolbar.addSeparator()
+
         # 批量删除
         self.batch_delete_action = QAction(QIcon(), '批量删除', self.main_window)
         self.batch_delete_action.setEnabled(False)

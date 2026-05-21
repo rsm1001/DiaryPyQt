@@ -1,6 +1,8 @@
 """
 主窗口 - PyQt6版本
 """
+import subprocess
+import sys
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QSplitter, QTableWidget, QTableWidgetItem, QHeaderView,
                             QToolBar, QStatusBar, QMenuBar, QMenu, QFileDialog,
@@ -8,7 +10,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                             QTabWidget, QFrame, QScrollArea, QGroupBox, QListWidget,
                             QListWidgetItem, QInputDialog, QLineEdit, QCheckBox, QTableView, QAbstractItemView,
                             QSizePolicy)
-from PyQt6.QtCore import Qt, QModelIndex, pyqtSignal, QTimer, QDate
+from PyQt6.QtCore import Qt, QModelIndex, pyqtSignal, QTimer, QDate, QThread
 from PyQt6.QtGui import QAction, QIcon, QFont, QKeySequence
 
 from models.entities.diary import Diary
@@ -503,36 +505,91 @@ ID: {stats['least_viewed']['id'] if stats['least_viewed'] else 'N/A'}
 内容: {stats['least_viewed']['content'][:30] + '...' if stats['least_viewed'] and len(stats['least_viewed']['content']) > 30 else (stats['least_viewed']['content'] if stats['least_viewed'] else 'N/A') if stats['least_viewed'] else 'N/A'}"""
         
         QMessageBox.information(self, "统计信息", stats_text)
-    
+
+    def run_tests(self):
+        """运行单元测试"""
+        reply = QMessageBox.question(
+            self,
+            "运行测试",
+            "确定要运行所有单元测试吗？这可能需要一些时间。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # 获取项目根目录
+        project_root = self.controller.db_manager.db_path.replace("\\", "/").rsplit("/data/", 1)[0]
+        tests_dir = f"{project_root}/tests"
+
+        # 显示进度提示
+        self.statusBar().showMessage("正在运行测试...")
+
+        # 创建后台线程执行测试
+        self._test_thread = TestRunnerThread(tests_dir, sys.executable)
+        self._test_thread.test_finished.connect(self._on_tests_finished)
+        self._test_thread.start()
+
+    def _on_tests_finished(self, returncode: int, output: str):
+        """测试执行完成回调"""
+        self.statusBar().clearMessage()
+
+        # 提取关键信息
+        lines = output.split("\n")
+        summary_line = ""
+        for line in lines:
+            if "passed" in line or "failed" in line or "error" in line:
+                if "==" in line or "passed" in line:
+                    summary_line = line.strip()
+                    break
+
+        if returncode == 0:
+            QMessageBox.information(
+                self,
+                "测试结果",
+                f"所有测试通过！\n\n{summary_line}"
+            )
+        else:
+            # 截取最后100行输出
+            error_lines = output.split("\n")
+            error_output = "\n".join(error_lines[-100:])
+            QMessageBox.critical(
+                self,
+                "测试失败",
+                f"有测试用例失败！\n\n{summary_line}\n\n{error_output[:2000]}"
+            )
+
+
     def export_data(self):
         """导出数据"""
         file_path, _ = QFileDialog.getSaveFileName(
-            self, 
-            "导出数据", 
-            "", 
+            self,
+            "导出数据",
+            "",
             "JSON Files (*.json);;All Files (*)"
         )
-        
+
         if file_path:
             if self.controller.export_to_json(file_path):
                 QMessageBox.information(self, "成功", "数据导出成功")
             else:
                 QMessageBox.critical(self, "错误", "数据导出失败")
-    
+
     def import_data(self):
         """导入数据"""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, 
-            "导入数据", 
-            "", 
+            self,
+            "导入数据",
+            "",
             "JSON Files (*.json);;All Files (*)"
         )
-        
+
         if file_path:
             result = self.controller.migrate_from_json(file_path)
             QMessageBox.information(self, "导入结果", f"成功导入 {result} 篇日记")
             self.load_data()
-    
+
     def show_about(self):
         """显示关于对话框"""
         QMessageBox.about(
@@ -540,11 +597,37 @@ ID: {stats['least_viewed']['id'] if stats['least_viewed'] else 'N/A'}
             "关于",
             "日记管理系统 PyQt版\n\n版本: 1.0\n作者: Assistant\n\n基于PyQt6开发的现代化日记管理系统。"
         )
-    
+
     def open_trash(self):
         """打开垃圾桶对话框"""
         dialog = TrashDialog(self.controller, self)
         dialog.exec()
         self.load_data()  # 恢复日记后刷新列表
+
+
+class TestRunnerThread(QThread):
+    """后台测试运行线程"""
+
+    test_finished = pyqtSignal(int, str)  # (returncode, output)
+
+    def __init__(self, tests_dir: str, python_executable: str):
+        super().__init__()
+        self.tests_dir = tests_dir
+        self.python_executable = python_executable
+
+    def run(self):
+        """在线程中执行测试"""
+        try:
+            result = subprocess.run(
+                [self.python_executable, "-m", "pytest", self.tests_dir, "-v", "--tb=short", "-q"],
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            self.test_finished.emit(result.returncode, result.stdout + result.stderr)
+        except subprocess.TimeoutExpired:
+            self.test_finished.emit(-1, "测试运行超时（5分钟）")
+        except Exception as e:
+            self.test_finished.emit(-2, f"运行测试时出错：\n{str(e)}")
 
 

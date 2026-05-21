@@ -89,13 +89,20 @@ class MainMenuBar:
     def _create_tools_menu(self, menubar: QMenuBar):
         """创建工具菜单"""
         tools_menu = menubar.addMenu('工具')
-        
+
         stats_action = QAction('统计信息', self.main_window)
         stats_action.triggered.connect(self.main_window.show_statistics)
         tools_menu.addAction(stats_action)
-        
+
         tools_menu.addSeparator()
-        
+
+        run_tests_action = QAction('运行测试', self.main_window)
+        run_tests_action.setShortcut('Ctrl+Shift+T')
+        run_tests_action.triggered.connect(self.main_window.run_tests)
+        tools_menu.addAction(run_tests_action)
+
+        tools_menu.addSeparator()
+
         trash_action = QAction('垃圾桶', self.main_window)
         trash_action.setShortcut('Ctrl+T')
         trash_action.triggered.connect(self.main_window.open_trash)
