@@ -212,6 +212,41 @@ class EnhancedDatabaseManager(
         cursor.execute('DROP INDEX IF EXISTS idx_view_log_diary_id')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_diary_id ON view_log(diary_id)')
 
+        # ---- FTS5 全文搜索表 ----
+        cursor.execute('''
+            CREATE VIRTUAL TABLE IF NOT EXISTS diaries_fts USING fts5(
+                content,
+                content='diaries',
+                content_rowid='id'
+            )
+        ''')
+
+        # 初始化 FTS 表（将已有数据灌入）
+        cursor.execute('INSERT OR IGNORE INTO diaries_fts(rowid, content) SELECT id, content FROM diaries')
+
+        # ---- FTS5 同步触发器 ----
+        # INSERT 触发器
+        cursor.execute('''
+            CREATE TRIGGER IF NOT EXISTS diaries_fts_insert AFTER INSERT ON diaries BEGIN
+                INSERT INTO diaries_fts(rowid, content) VALUES (new.id, new.content);
+            END
+        ''')
+
+        # UPDATE 触发器
+        cursor.execute('''
+            CREATE TRIGGER IF NOT EXISTS diaries_fts_update AFTER UPDATE ON diaries BEGIN
+                INSERT INTO diaries_fts(diaries_fts, rowid, content) VALUES ('delete', old.id, old.content);
+                INSERT INTO diaries_fts(rowid, content) VALUES (new.id, new.content);
+            END
+        ''')
+
+        # DELETE 触发器
+        cursor.execute('''
+            CREATE TRIGGER IF NOT EXISTS diaries_fts_delete AFTER DELETE ON diaries BEGIN
+                INSERT INTO diaries_fts(diaries_fts, rowid, content) VALUES ('delete', old.id, old.content);
+            END
+        ''')
+
         # ---- 性能优化PRAGMA ----
         cursor.execute('PRAGMA journal_mode=WAL')
         cursor.execute('PRAGMA synchronous=NORMAL')

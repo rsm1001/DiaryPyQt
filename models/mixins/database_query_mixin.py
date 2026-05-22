@@ -128,7 +128,7 @@ class DatabaseQueryMixin:
 
     def search_by_keyword(self, keyword: str, limit: int = 18) -> List[Dict[str, Any]]:
         """
-        根据关键词搜索日记
+        根据关键词搜索日记（智能搜索：FTS5 + LIKE 回退）
 
         Args:
             keyword: 搜索关键词
@@ -139,14 +139,49 @@ class DatabaseQueryMixin:
         """
         if not keyword or not keyword.strip():
             return []
-        
-        return self._execute(
+
+        fts_keyword = keyword.strip()
+
+        # 检测是否包含中文字符（中文场景下 FTS5 分词效果不佳，优先 LIKE）
+        has_chinese = any('一' <= c <= '鿿' for c in fts_keyword)
+
+        if has_chinese:
+            # 中文搜索：使用 LIKE 兜底（保证准确性）
+            return self._execute(
+                """
+                SELECT * FROM diaries
+                WHERE LOWER(content) LIKE LOWER(?)
+                ORDER BY view_count DESC, date DESC
+                LIMIT ?
+                """,
+                (f"%{fts_keyword.lower()}%", limit),
+                fetch='all'
+            ) or []
+
+        # 英文/拉丁语系：优先 FTS5（高性能），无结果时 LIKE 兜底
+        results = self._execute(
             """
-            SELECT * FROM diaries
-            WHERE LOWER(content) LIKE LOWER(?)
-            ORDER BY view_count DESC, date DESC
+            SELECT d.* FROM diaries d
+            INNER JOIN diaries_fts fts ON d.id = fts.rowid
+            WHERE diaries_fts MATCH ?
+            ORDER BY d.view_count DESC, d.date DESC
             LIMIT ?
             """,
-            (f"%{keyword.strip().lower()}%", limit),
+            (fts_keyword, limit),
             fetch='all'
         ) or []
+
+        # FTS5 搜索无结果时，LIKE 兜底
+        if not results:
+            results = self._execute(
+                """
+                SELECT * FROM diaries
+                WHERE LOWER(content) LIKE LOWER(?)
+                ORDER BY view_count DESC, date DESC
+                LIMIT ?
+                """,
+                (f"%{fts_keyword.lower()}%", limit),
+                fetch='all'
+            ) or []
+
+        return results
