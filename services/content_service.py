@@ -185,9 +185,11 @@ class DiaryContentService:
 
         diaries = self.db_manager._execute(query, params, fetch='all') or []
 
-        # 附加标签信息
+        # 批量获取标签（避免 N+1 查询）
+        diary_ids = [d['id'] for d in diaries]
+        tags_map = self.db_manager.get_tags_for_diaries(diary_ids)
         for diary in diaries:
-            diary['tags'] = self.db_manager.get_tags_by_diary_id(diary['id'])
+            diary['tags'] = tags_map.get(diary['id'], [])
 
         return diaries
 
@@ -268,9 +270,11 @@ class DiaryContentService:
             params = (limit,)
         
         diaries = self.db_manager._execute(query, params, fetch='all') or []
-        
-        # 对每篇日记获取完整的标签列表
+
+        # 批量获取标签（避免 N+1 查询）
+        diary_ids = [d['id'] for d in diaries]
+        tags_map = self.db_manager.get_tags_for_diaries(diary_ids)
         for diary in diaries:
-            diary['tags'] = self.db_manager.get_tags_by_diary_id(diary['id'])
-        
+            diary['tags'] = tags_map.get(diary['id'], [])
+
         return diaries

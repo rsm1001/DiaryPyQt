@@ -185,3 +185,37 @@ class DatabaseQueryMixin:
             ) or []
 
         return results
+
+    def get_tags_for_diaries(self, diary_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
+        """
+        批量获取多篇日记的标签（避免 N+1 查询）
+
+        Args:
+            diary_ids: 日记ID列表
+
+        Returns:
+            dict，key 为 diary_id，value 为该日记的标签列表
+        """
+        if not diary_ids:
+            return {}
+
+        placeholders = ','.join('?' * len(diary_ids))
+        rows = self._execute(
+            f"""
+            SELECT t.*, dt.diary_id
+            FROM tags t
+            INNER JOIN diary_tags dt ON t.id = dt.tag_id
+            WHERE dt.diary_id IN ({placeholders})
+            ORDER BY dt.diary_id, t.name ASC
+            """,
+            diary_ids,
+            fetch='all'
+        ) or []
+
+        result: Dict[int, List[Dict[str, Any]]] = {did: [] for did in diary_ids}
+        for row in rows:
+            did = row['diary_id']
+            tag = {k: v for k, v in row.items() if k != 'diary_id'}
+            result[did].append(tag)
+
+        return result
