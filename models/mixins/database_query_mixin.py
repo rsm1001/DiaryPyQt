@@ -142,9 +142,9 @@ class DatabaseQueryMixin:
         
         return self._execute(
             """
-            SELECT * FROM diaries 
-            WHERE content LIKE ? 
-            ORDER BY view_count DESC, date DESC 
+            SELECT * FROM diaries
+            WHERE LOWER(content) LIKE LOWER(?)
+            ORDER BY view_count DESC, date DESC
             LIMIT ?
             """,
             (f"%{keyword.strip().lower()}%", limit),

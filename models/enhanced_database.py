@@ -201,6 +201,8 @@ class EnhancedDatabaseManager(
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_view_count ON diaries(view_count)')
         cursor.execute('DROP INDEX IF EXISTS idx_diaries_content')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_content ON diaries(content)')
+        cursor.execute('DROP INDEX IF EXISTS idx_diaries_content_lower')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_content_lower ON diaries(LOWER(content))')
         cursor.execute('DROP INDEX IF EXISTS idx_diary_tags_diary_id')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_diary_tags_diary_id ON diary_tags(diary_id)')
         cursor.execute('DROP INDEX IF EXISTS idx_diary_tags_tag_id')
