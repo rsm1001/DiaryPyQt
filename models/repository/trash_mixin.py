@@ -75,9 +75,16 @@ class TrashMixin:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 trash_diary_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
+                original_tag_id INTEGER,
                 FOREIGN KEY (trash_diary_id) REFERENCES trash_diaries(id) ON DELETE CASCADE
             )
         ''')
+
+        # 为已有表添加 original_tag_id 列（兼容旧数据库）
+        try:
+            cursor.execute('ALTER TABLE trash_tags ADD COLUMN original_tag_id INTEGER')
+        except Exception:
+            pass  # 列已存在
 
         # 创建索引
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_trash_deleted_at ON trash_diaries(deleted_at)')
@@ -188,8 +195,8 @@ class TrashMixin:
             # 插入标签到垃圾桶
             for tag in tags:
                 trash_cursor.execute(
-                    "INSERT INTO trash_tags (trash_diary_id, name) VALUES (?, ?)",
-                    (trash_diary_id, tag['name'])
+                    "INSERT INTO trash_tags (trash_diary_id, name, original_tag_id) VALUES (?, ?, ?)",
+                    (trash_diary_id, tag['name'], tag['id'])
                 )
 
             # 从原数据库删除（外键会级联删除diary_tags）
@@ -267,21 +274,36 @@ class TrashMixin:
 
             # 恢复标签关联
             for tag in trash_tags:
-                # 先确保标签存在（可能已被删除）
-                main_cursor.execute(
-                    "INSERT OR IGNORE INTO tags (name) VALUES (?)",
-                    (tag['name'],)
-                )
-                # 获取标签ID
-                main_cursor.execute(
-                    "SELECT id FROM tags WHERE name = ?",
-                    (tag['name'],)
-                )
-                tag_row = main_cursor.fetchone()
-                if tag_row:
+                # 优先使用原始 tag_id 查找标签（精确恢复）
+                tag_id = None
+                if tag['original_tag_id']:
+                    existing_tag = self.get_tag_by_id(tag['original_tag_id'])
+                    if existing_tag:
+                        tag_id = existing_tag['id']
+                    else:
+                        # 原始标签已被删除，通过名称查找或重建
+                        existing_by_name = self.get_tag_by_name(tag['name'])
+                        if existing_by_name:
+                            tag_id = existing_by_name['id']
+                        else:
+                            # 标签完全不存在，需要重建
+                            new_tag = self.add_tag(tag['name'])
+                            if new_tag:
+                                tag_id = new_tag['id']
+                else:
+                    # 兼容旧数据：没有 original_tag_id，通过名称查找
+                    existing_by_name = self.get_tag_by_name(tag['name'])
+                    if existing_by_name:
+                        tag_id = existing_by_name['id']
+                    else:
+                        new_tag = self.add_tag(tag['name'])
+                        if new_tag:
+                            tag_id = new_tag['id']
+
+                if tag_id:
                     main_cursor.execute(
                         "INSERT OR IGNORE INTO diary_tags (diary_id, tag_id) VALUES (?, ?)",
-                        (restored_diary_id, tag_row['id'])
+                        (restored_diary_id, tag_id)
                     )
 
             # 从垃圾桶中删除
