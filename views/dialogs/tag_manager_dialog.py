@@ -96,7 +96,7 @@ class TagManagerMixin:
     
     def filter_tags(self, keyword=""):
         """根据关键词过滤标签列表"""
-        keyword = keyword.strip().lower()
+        keyword = self.tag_search_input.text().strip().lower() if hasattr(self, 'tag_search_input') else keyword.strip().lower()
         
         for checkbox in self.tag_checkboxes.values():
             checkbox.setParent(None)
