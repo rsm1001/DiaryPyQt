@@ -250,7 +250,6 @@ class MigrationBackupManager:
             shutil.copy2(backup_path, self.db_manager.db_path)
             
             # 重新初始化连接
-            self.db_manager._local.connection = None
             self.db_manager._init_database()
             
             logger.info(f"数据库恢复成功: {backup_path} -> {self.db_manager.db_path}")
