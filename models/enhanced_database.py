@@ -76,19 +76,17 @@ class EnhancedDatabaseManager(
         self._init_pool()
 
         # 服务占位（延迟初始化）
-        self.migration_backup_manager: Optional[MigrationBackupManager] = None
-        self.statistics_service = None
-        self.view_count_service = None
-        self.diary_content_service = None
+        self._services_initialized = False
+        self._migration_backup_manager = None
+        self._statistics_service = None
+        self._view_count_service = None
+        self._diary_content_service = None
 
         # 确保目录存在
         self._ensure_directory()
 
         # 初始化数据库
         self._init_database()
-
-        # 初始化各服务
-        self._init_services()
 
         # 初始化垃圾桶数据库
         self._init_trash_database()
@@ -103,12 +101,31 @@ class EnhancedDatabaseManager(
 
     def _init_services(self):
         """初始化各服务实例"""
+        if self._services_initialized:
+            return
         StatisticsService, ViewCountService, DiaryContentService = _import_services_lazily()
 
-        self.migration_backup_manager = MigrationBackupManager(self)
-        self.statistics_service = StatisticsService(self)
-        self.view_count_service = ViewCountService(self)
-        self.diary_content_service = DiaryContentService(self)
+        self._migration_backup_manager = MigrationBackupManager(self)
+        self._statistics_service = StatisticsService(self)
+        self._view_count_service = ViewCountService(self)
+        self._diary_content_service = DiaryContentService(self)
+        self._services_initialized = True
+
+    def __getattr__(self, name):
+        """延迟初始化服务属性"""
+        if name == 'migration_backup_manager':
+            self._init_services()
+            return self._migration_backup_manager
+        if name == 'statistics_service':
+            self._init_services()
+            return self._statistics_service
+        if name == 'view_count_service':
+            self._init_services()
+            return self._view_count_service
+        if name == 'diary_content_service':
+            self._init_services()
+            return self._diary_content_service
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     # -------------------------------------------------------------------------
     # 数据库Schema初始化
