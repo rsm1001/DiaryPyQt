@@ -5,16 +5,17 @@
 import json
 import logging
 from PyQt6.QtCore import QSettings
+from i18n import _
 
 logger = logging.getLogger(__name__)
 
 # 列定义：ID、标题、默认宽度(像素)
 DEFAULT_COLUMNS = [
-    {'id': 'id',      'title': 'ID',         'default_width': 50},
-    {'id': 'date',    'title': '日期',       'default_width': 120},
-    {'id': 'views',   'title': '查看次数',    'default_width': 70},
-    {'id': 'tags',    'title': '标签',        'default_width': 100},
-    {'id': 'preview', 'title': '内容预览',    'default_width': 250},
+    {'id': 'id',      'title': _('ID'),         'default_width': 50},
+    {'id': 'date',    'title': _('日期'),       'default_width': 120},
+    {'id': 'views',   'title': _('查看次数'),    'default_width': 70},
+    {'id': 'tags',    'title': _('标签'),        'default_width': 100},
+    {'id': 'preview', 'title': _('内容预览'),    'default_width': 250},
 ]
 
 

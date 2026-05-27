@@ -1,11 +1,12 @@
 """
 日记对话框组件 - 从 main_window.py 解耦出来的对话框类
 """
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, 
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTextEdit,
                             QLabel, QPushButton, QMessageBox)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence
 
+from i18n import _
 from widgets.TagSelectorWidget import TagSelectorWidget
 from views.dialogs.base_dialog import CenteredDialogMixin
 from views.dialogs.tag_manager_dialog import TagManagerMixin
@@ -25,7 +26,7 @@ class DiaryEditDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
     
     def init_ui(self):
         """初始化界面"""
-        self.setWindowTitle("编辑日记" if self.diary else "新建日记")
+        self.setWindowTitle(_("编辑日记") if self.diary else _("新建日记"))
         self.resize(600, 500)
         self.center_on_parent()
         
@@ -34,9 +35,9 @@ class DiaryEditDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
         # 信息显示区域（仅在编辑现有日记时显示）
         if self.diary:
             info_layout = QHBoxLayout()
-            self.id_label = QLabel(f"ID: {self.diary.id}")
-            self.date_label = QLabel(f"日期: {self.diary.date}")
-            self.views_label = QLabel(f"查看次数: {self.diary.view_count}")
+            self.id_label = QLabel(_("ID:") + f" {self.diary.id}")
+            self.date_label = QLabel(_("日期:") + f" {self.diary.date}")
+            self.views_label = QLabel(_("查看次数:") + f" {self.diary.view_count}")
             self.id_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.views_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -56,9 +57,9 @@ class DiaryEditDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
         
-        self.save_btn = QPushButton("保存")
+        self.save_btn = QPushButton(_("保存"))
         self.save_btn.clicked.connect(self.accept)
-        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn = QPushButton(_("取消"))
         self.cancel_btn.clicked.connect(self.reject)
         
         button_layout.addWidget(self.save_btn)
@@ -100,7 +101,7 @@ class DiaryViewDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
     
     def init_ui(self):
         """初始化界面"""
-        self.setWindowTitle("查看日记")
+        self.setWindowTitle(_("查看日记"))
         self.resize(700, 600)
         self.center_on_parent()
         
@@ -108,9 +109,9 @@ class DiaryViewDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
         
         # 信息显示区域
         info_layout = QHBoxLayout()
-        self.id_label = QLabel(f"ID: {self.diary.id}")
-        self.date_label = QLabel(f"日期: {self.diary.date}")
-        self.views_label = QLabel(f"查看次数: {self.diary.view_count}")
+        self.id_label = QLabel(_("ID:") + f" {self.diary.id}")
+        self.date_label = QLabel(_("日期:") + f" {self.diary.date}")
+        self.views_label = QLabel(_("查看次数:") + f" {self.diary.view_count}")
         self.id_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.views_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -132,14 +133,14 @@ class DiaryViewDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
         button_layout.addStretch()
         
         # 保存标签按钮
-        self.save_tags_btn = QPushButton("保存标签")
+        self.save_tags_btn = QPushButton(_("保存标签"))
         self.save_tags_btn.clicked.connect(self.save_tags)
         self.save_tags_btn.setStyleSheet(
             "QPushButton { background-color: #4CAF50; color: white; }"
         )
         button_layout.addWidget(self.save_tags_btn)
         
-        self.close_btn = QPushButton("关闭")
+        self.close_btn = QPushButton(_("关闭"))
         self.close_btn.clicked.connect(self.close)
         button_layout.addWidget(self.close_btn)
         button_layout.addStretch()
@@ -162,7 +163,7 @@ class DiaryViewDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
         success = controller.assign_tags_to_diary(self.diary.id, selected_tag_ids)
         
         if success:
-            QMessageBox.information(self, "成功", "标签更新成功！")
+            QMessageBox.information(self, _("成功"), _("标签更新成功！"))
             self.diary.tags = controller.get_tags_by_diary_id(self.diary.id)
         else:
-            QMessageBox.warning(self, "错误", "标签更新失败！")
+            QMessageBox.warning(self, _("错误"), _("标签更新失败！"))

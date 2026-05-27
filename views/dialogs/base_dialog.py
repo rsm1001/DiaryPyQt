@@ -4,6 +4,8 @@
 from PyQt6.QtWidgets import QDialog, QApplication, QMenu, QMessageBox
 from PyQt6.QtCore import Qt
 
+from i18n import _
+
 
 class ContextMenuMixin:
     """列表右键菜单混入类 - 为 QListWidget 或 QTableView 提供右键菜单功能"""
@@ -29,9 +31,9 @@ class ContextMenuMixin:
             return
 
         menu = QMenu()
-        view_action = menu.addAction("查看")
-        edit_action = menu.addAction("编辑")
-        delete_action = menu.addAction("删除")
+        view_action = menu.addAction(_("查看"))
+        edit_action = menu.addAction(_("编辑"))
+        delete_action = menu.addAction(_("删除"))
 
         action = menu.exec(widget.viewport().mapToGlobal(position))
 
@@ -74,14 +76,14 @@ class ContextMenuMixin:
         """右键菜单删除日记"""
         reply = QMessageBox.question(
             self,
-            "确认删除",
-            f"确定要删除日记 ID:{diary.id} 吗？\n\n内容: {diary.content[:50]}...",
+            _("确认删除"),
+            _(f"确定要删除日记 ID:{diary.id} 吗？\n\n内容: {diary.content[:50]}..."),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
             self.controller.delete_diary_by_id(diary.id)
             self._remove_result_item(item)
-            QMessageBox.information(self, "成功", "日记已删除")
+            QMessageBox.information(self, _("成功"), _("日记已删除"))
 
     def _refresh_search_results(self):
         """刷新搜索结果 - 子类可覆盖"""

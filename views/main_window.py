@@ -6,6 +6,7 @@ import logging
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QSplitter, QMessageBox, QDialog, QTableView, QStatusBar)
 from PyQt6.QtCore import Qt
+from i18n import _
 from views.dialogs.diary_action_helper import DiaryActionHelper, AboutDialog
 from views.dialogs.test_dialog_helper import TestDialogHelper
 from views.dialogs.statistics_dialog import StatisticsDialog
@@ -64,7 +65,7 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         """初始化用户界面"""
-        self.setWindowTitle("日记管理系统 - PyQt版")
+        self.setWindowTitle(_("日记管理系统 - PyQt版"))
         screen_geometry = QApplication.primaryScreen().geometry()
         x = (screen_geometry.width() - 1000) // 2
         y = (screen_geometry.height() - 700) // 2
@@ -137,7 +138,7 @@ class MainWindow(QMainWindow):
         self.current_date_filter = None
         self.load_data()
         date_filter_label = self.calendar_panel._date_filter_label
-        date_filter_label.setText("全部日记")
+        date_filter_label.setText(_("全部日记"))
         date_filter_label.setStyleSheet("color: #868e96; font-size: 12px; padding: 6px;")
         logger.debug("显示全部日记")
 
@@ -350,6 +351,18 @@ class MainWindow(QMainWindow):
         theme_manager = ThemeManager()
         theme_manager.apply_theme(self, self.current_theme)
 
+    def on_language_changed(self, lang):
+        """语言切换后刷新UI"""
+        logger.info(f"语言切换为: {lang}")
+        # 重新创建菜单和工具栏以应用新语言
+        self.menu_manager.create()
+        self.toolbar_manager.create()
+        # 更新状态栏
+        self.update_status_bar()
+        # 刷新表格表头
+        self.model.refresh_headers()
+        logger.info("语言切换完成，UI已刷新")
+
     def show_column_settings(self):
         """显示列设置对话框"""
         dialog = ColumnSettingsDialog(self.column_config_manager, self)
@@ -370,7 +383,7 @@ class MainWindow(QMainWindow):
         project_root = self.controller.db_manager.db_path.replace("\\", "/").rsplit("/data/", 1)[0]
         tests_dir = f"{project_root}/tests"
 
-        self.status_bar_manager.show_message("正在运行测试...")
+        self.status_bar_manager.show_message(_("正在运行测试..."))
 
         self._test_thread = TestRunnerThread(tests_dir, sys.executable)
         self._test_thread.test_finished.connect(self._on_tests_finished)

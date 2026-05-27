@@ -11,6 +11,11 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
+# 初始化多语言支持
+from i18n import init_i18n
+language = init_i18n()
+print(f"使用语言: {language}")
+
 from views.main_window import MainWindow
 from utils.theme_utils import apply_theme_to_app
 from models.enhanced_database import EnhancedDatabaseManager

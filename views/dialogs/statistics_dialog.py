@@ -4,6 +4,8 @@
 import logging
 from PyQt6.QtWidgets import QMessageBox
 
+from i18n import _
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,7 +25,7 @@ class StatisticsDialog:
         daily_stats = controller.get_daily_stats()
 
         if stats['total'] == 0:
-            QMessageBox.information(parent, "统计", "暂无日记")
+            QMessageBox.information(parent, _("统计"), _("暂无日记"))
             return
 
         most_viewed = stats['most_viewed']
@@ -31,7 +33,7 @@ class StatisticsDialog:
 
         stats_text = StatisticsDialog._build_stats_text(stats, daily_stats, most_viewed, least_viewed)
 
-        QMessageBox.information(parent, "统计信息", stats_text)
+        QMessageBox.information(parent, _("统计信息"), stats_text)
         logger.debug("统计信息对话框已显示")
 
     @staticmethod
@@ -40,22 +42,22 @@ class StatisticsDialog:
         most_viewed_content = StatisticsDialog._format_content(most_viewed)
         least_viewed_content = StatisticsDialog._format_content(least_viewed)
 
-        return f"""统计信息：
-总计日记数：{stats['total']}
-总查看次数：{stats['total_views']}
-平均查看次数：{stats['avg_views']}
-昨日查看总数：{daily_stats['yesterday_total_views']}
-历史最佳单日：{daily_stats['all_time_max_single_views']} ({daily_stats['all_time_max_date'] or 'N/A'})
+        return f"""{_("统计信息")}:
+{_("总计日记数：")}{stats['total']}
+{_("总查看次数：")}{stats['total_views']}
+{_("平均查看次数：")}{stats['avg_views']}
+{_("昨日查看总数：")}{daily_stats['yesterday_total_views']}
+{_("历史最佳单日：")}{daily_stats['all_time_max_single_views']} ({daily_stats['all_time_max_date'] or 'N/A'})
 
-最多查看的日记：
+{_("最多查看的日记：")}
 ID: {most_viewed['id'] if most_viewed else 'N/A'}
-查看次数: {most_viewed['view_count'] if most_viewed else 'N/A'}
-内容: {most_viewed_content}
+{_("查看次数:")} {most_viewed['view_count'] if most_viewed else 'N/A'}
+{_("内容:")} {most_viewed_content}
 
-最少查看的日记：
+{_("最少查看的日记：")}
 ID: {least_viewed['id'] if least_viewed else 'N/A'}
-查看次数: {least_viewed['view_count'] if least_viewed else 'N/A'}
-内容: {least_viewed_content}"""
+{_("查看次数:")} {least_viewed['view_count'] if least_viewed else 'N/A'}
+{_("内容:")} {least_viewed_content}"""
 
     @staticmethod
     def _format_content(diary_info: dict) -> str:

@@ -5,6 +5,8 @@ from PyQt6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem, QStyle
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter
 
+from i18n import _
+
 
 class TagDelegate(QStyledItemDelegate):
     """标签列自定义委托 - 绘制彩色胶囊标签（紧凑单行排列）"""
@@ -32,7 +34,7 @@ class TagDelegate(QStyledItemDelegate):
         """自定义绘制标签 - 单行紧凑排列"""
         # 获取标签数据
         tags_str = index.data(Qt.ItemDataRole.DisplayRole)
-        if not tags_str or tags_str == "无标签":
+        if not tags_str or tags_str == _("无标签"):
             # 绘制短横线表示无标签，居中显示
             painter.save()
             painter.setPen(QColor('#ccc'))
@@ -117,7 +119,7 @@ class TagDelegate(QStyledItemDelegate):
         font_metrics = QFontMetrics(font)
         
         # 无标签时返回最小宽度
-        if not tags_str or tags_str == "无标签":
+        if not tags_str or tags_str == _("无标签"):
             return QSize(50, 24)
         
         # 有标签时计算所需宽度

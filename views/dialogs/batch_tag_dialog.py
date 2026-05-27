@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushBut
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence
 
+from i18n import _
 from views.dialogs.base_dialog import CenteredDialogMixin
 from views.dialogs.tag_manager_dialog import TagManagerMixin
 
@@ -28,7 +29,7 @@ class BatchTagDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
 
     def init_ui(self):
         """初始化界面"""
-        self.setWindowTitle(f"批量打标签 - 已选 {len(self.diaries)} 篇日记")
+        self.setWindowTitle(_("批量打标签") + f" - {_('已选')} {len(self.diaries)} {_('篇日记')}")
         self.resize(500, 420)
         self.center_on_parent()
 
@@ -38,8 +39,8 @@ class BatchTagDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
         diary_ids = [d.id for d in self.diaries]
         id_preview = ", ".join(str(i) for i in diary_ids[:10])
         if len(diary_ids) > 10:
-            id_preview += f" ... (共{len(diary_ids)}篇)"
-        hint_label = QLabel(f"将为以下日记打标签：ID [{id_preview}]")
+            id_preview += f" ... ({_('共')}{len(diary_ids)}{_('篇')})"
+        hint_label = QLabel(f"{_('将为以下日记打标签：')}ID [{id_preview}]")
         hint_label.setStyleSheet("color: #666; font-size: 12px;")
         hint_label.setWordWrap(True)
         layout.addWidget(hint_label)
@@ -64,13 +65,13 @@ class BatchTagDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        self.save_btn = QPushButton("保存")
+        self.save_btn = QPushButton(_("保存"))
         self.save_btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; }")
         self.save_btn.clicked.connect(self._save_and_accept)
         self.save_btn.setShortcut(QKeySequence.StandardKey.Save)
         button_layout.addWidget(self.save_btn)
 
-        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn = QPushButton(_("取消"))
         self.cancel_btn.clicked.connect(self.reject)
         self.cancel_btn.setShortcut(QKeySequence.StandardKey.Cancel)
         button_layout.addWidget(self.cancel_btn)

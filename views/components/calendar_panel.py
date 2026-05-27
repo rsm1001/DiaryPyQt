@@ -11,6 +11,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton,
 from PyQt6.QtCore import Qt, QDate, pyqtSignal, QRect
 from PyQt6.QtGui import QPainter, QFont, QBrush, QPen, QColor
 
+from i18n import _
+
 logger = logging.getLogger(__name__)
 
 
@@ -117,7 +119,7 @@ class CalendarPanelFactory:
         layout.setSpacing(8)
 
         # 标题
-        title = QLabel("📅 日历查询")
+        title = QLabel(_("📅 日历查询"))
         title.setStyleSheet("""
             font-weight: bold;
             font-size: 14px;
@@ -190,7 +192,7 @@ class CalendarPanelFactory:
         layout.addWidget(line)
 
         # 当前选中日期标签
-        date_filter_label = QLabel("全部日记")
+        date_filter_label = QLabel(_("全部日记"))
         date_filter_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         date_filter_label.setObjectName("dateFilterLabel")
         date_filter_label.setStyleSheet("""
@@ -201,7 +203,7 @@ class CalendarPanelFactory:
         layout.addWidget(date_filter_label)
 
         # 显示全部按钮
-        show_all_btn = QPushButton("显示全部日记")
+        show_all_btn = QPushButton(_("显示全部日记"))
         show_all_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4dabf7;

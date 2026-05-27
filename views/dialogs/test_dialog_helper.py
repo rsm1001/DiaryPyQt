@@ -4,6 +4,8 @@
 import logging
 from PyQt6.QtWidgets import QMessageBox
 
+from i18n import _
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,8 +23,8 @@ class TestDialogHelper:
             bool: 用户是否确认运行测试
         """
         reply = QMessageBox.question(
-            parent, "运行测试",
-            "确定要运行所有单元测试吗？这可能需要一些时间。",
+            parent, _("运行测试"),
+            _("确定要运行所有单元测试吗？这可能需要一些时间。"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -40,13 +42,13 @@ class TestDialogHelper:
         summary_line = TestDialogHelper._extract_summary(output)
 
         if returncode == 0:
-            QMessageBox.information(parent, "测试结果", f"所有测试通过！\n\n{summary_line}")
+            QMessageBox.information(parent, _("测试结果"), _("所有测试通过！") + f"\n\n{summary_line}")
             logger.info("测试全部通过")
         else:
             error_lines = output.split("\n")
             error_output = "\n".join(error_lines[-100:])
-            QMessageBox.critical(parent, "测试失败",
-                f"有测试用例失败！\n\n{summary_line}\n\n{error_output[:2000]}")
+            QMessageBox.critical(parent, _("测试失败"),
+                _("有测试用例失败！") + f"\n\n{summary_line}\n\n{error_output[:2000]}")
             logger.error(f"测试失败: {summary_line}")
 
     @staticmethod

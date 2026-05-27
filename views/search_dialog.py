@@ -2,13 +2,15 @@
 搜索对话框 - 从主窗口中解耦出来的独立模块
 """
 
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter, 
-                            QWidget, QListWidget, QListWidgetItem, QLabel, 
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
+                            QWidget, QListWidget, QListWidgetItem, QLabel,
                             QLineEdit, QPushButton, QGroupBox, QGridLayout,
                             QMessageBox, QApplication)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence
 from views.dialogs.base_dialog import CenteredDialogMixin, ContextMenuMixin
+
+from i18n import _
 
 
 class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
@@ -24,7 +26,7 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
     
     def init_ui(self):
         """初始化界面"""
-        self.setWindowTitle("搜索日记")
+        self.setWindowTitle(_("搜索日记"))
         # 设置窗口大小
         self.resize(700, 500)  # 增加窗口大小以容纳标签区域
         
@@ -42,19 +44,19 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
         
         # 搜索输入区域
         search_layout = QHBoxLayout()
-        search_layout.addWidget(QLabel("关键词:"))
+        search_layout.addWidget(QLabel(_("关键词:")))
         self.keyword_input = QLineEdit()
         self.keyword_input.returnPressed.connect(self.perform_search)
         search_layout.addWidget(self.keyword_input)
         
-        self.search_btn = QPushButton("搜索")
+        self.search_btn = QPushButton(_("搜索"))
         self.search_btn.clicked.connect(self.perform_search)
         search_layout.addWidget(self.search_btn)
         
         left_layout.addLayout(search_layout)
         
         # 标签区域
-        tags_group = QGroupBox("标签")
+        tags_group = QGroupBox(_("标签"))
         tags_layout = QVBoxLayout()
         
         # 标签列表
@@ -66,16 +68,16 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
         # 标签操作按钮
         tag_button_layout = QHBoxLayout()
         
-        self.refresh_tags_btn = QPushButton("刷新标签")
+        self.refresh_tags_btn = QPushButton(_("刷新标签"))
         self.refresh_tags_btn.clicked.connect(self.load_tags)
         tag_button_layout.addWidget(self.refresh_tags_btn)
         
-        self.clear_filter_btn = QPushButton("清除筛选")
+        self.clear_filter_btn = QPushButton(_("清除筛选"))
         self.clear_filter_btn.clicked.connect(self.clear_filter)
         tag_button_layout.addWidget(self.clear_filter_btn)
         
         # 添加删除未使用标签按钮
-        self.delete_unused_tags_btn = QPushButton("删除未用标签")
+        self.delete_unused_tags_btn = QPushButton(_("删除未用标签"))
         self.delete_unused_tags_btn.clicked.connect(self.delete_unused_tags)
         tag_button_layout.addWidget(self.delete_unused_tags_btn)
         
@@ -92,7 +94,7 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
         right_layout = QVBoxLayout()
         
         # 结果标题
-        self.result_title = QLabel("搜索结果")
+        self.result_title = QLabel(_("搜索结果"))
         self.result_title.setStyleSheet("font-weight: bold; font-size: 12px;")
         right_layout.addWidget(self.result_title)
         
@@ -101,7 +103,7 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
         right_layout.addWidget(self.results_list)
         
         # 结果计数
-        self.result_count_label = QLabel("共 0 条结果")
+        self.result_count_label = QLabel(_("共 0 条结果"))
         self.result_count_label.setStyleSheet("font-size: 10px; color: gray;")
         right_layout.addWidget(self.result_count_label)
         
@@ -117,9 +119,9 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
         button_layout = QHBoxLayout()
         button_layout.addStretch()  # 左侧弹性空间
         
-        self.ok_btn = QPushButton("确定")
+        self.ok_btn = QPushButton(_("确定"))
         self.ok_btn.clicked.connect(self.accept)
-        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn = QPushButton(_("取消"))
         self.cancel_btn.clicked.connect(self.reject)
         
         button_layout.addWidget(self.ok_btn)
@@ -174,7 +176,7 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
         
         # 如果没有标签，显示提示信息
         if not tags:
-            self.tags_list.addItem(QListWidgetItem("暂无标签"))
+            self.tags_list.addItem(QListWidgetItem(_("暂无标签")))
     
     def on_tag_clicked(self, item):
         """标签项被点击"""
@@ -192,7 +194,7 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
         if not keyword:
             # 如果关键词为空，显示所有日记
             diaries = self.controller.get_all_diaries(limit=50)
-            self.display_results(diaries, "全部日记")
+            self.display_results(diaries, _("全部日记"))
             return
         
         # 执行关键词搜索
@@ -217,10 +219,10 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
         
         # 更新结果计数
         count = len(diaries)
-        self.result_count_label.setText(f"共 {count} 条结果 - {search_type}")
+        self.result_count_label.setText(_(f"共 {count} 条结果 - {search_type}"))
         
         if not diaries:
-            self.results_list.addItem("没有找到匹配的日记")
+            self.results_list.addItem(_("没有找到匹配的日记"))
     
     def clear_filter(self):
         """清除筛选，显示所有日记"""
@@ -233,7 +235,7 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
         unused_tags = self.controller.get_unused_tags()
 
         if not unused_tags:
-            QMessageBox.information(self, "提示", "没有未被使用的标签，无需删除。")
+            QMessageBox.information(self, _("提示"), _("没有未被使用的标签，无需删除。"))
             return
 
         # 显示未使用的标签列表供用户确认
@@ -242,8 +244,8 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
 
         reply = QMessageBox.question(
             self,
-            "确认删除未使用标签",
-            f"以下标签未被任何日记使用，是否删除？\n\n{tag_list_str}\n\n确认删除吗？",
+            _("确认删除未使用标签"),
+            _(f"以下标签未被任何日记使用，是否删除？\n\n{tag_list_str}\n\n确认删除吗？"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
@@ -263,8 +265,8 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
                     failed_count += 1
                     print(f"删除标签失败: {e}")
 
-            QMessageBox.information(self, "删除结果",
-                                   f"删除完成！\n成功删除: {deleted_count} 个\n失败: {failed_count} 个")
+            QMessageBox.information(self, _("删除结果"),
+                                   _(f"删除完成！\n成功删除: {deleted_count} 个\n失败: {failed_count} 个"))
             self.load_tags()  # 重新加载标签列表
 
     def _remove_result_item(self, item):
@@ -274,7 +276,7 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
             item.listWidget().takeItem(row)
             if item in self.current_results:
                 self.current_results.remove(item)
-            self.result_count_label.setText(f"共 {len(self.current_results)} 条结果")
+            self.result_count_label.setText(_(f"共 {len(self.current_results)} 条结果"))
 
     def _refresh_search_results(self):
         """刷新搜索结果"""

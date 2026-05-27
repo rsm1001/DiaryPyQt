@@ -5,6 +5,8 @@ import logging
 from PyQt6.QtWidgets import QMenu
 from PyQt6.QtCore import QPoint
 
+from i18n import _
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,16 +43,16 @@ class ContextMenuBuilder:
             logger.debug("无选中行，不显示菜单")
             return False
         elif count == 1:
-            menu.addAction("查看", self._view_handler)
-            menu.addAction("编辑", self._edit_handler)
-            menu.addAction("删除", self._delete_handler)
+            menu.addAction(_("查看"), self._view_handler)
+            menu.addAction(_("编辑"), self._edit_handler)
+            menu.addAction(_("删除"), self._delete_handler)
             logger.debug("显示单选菜单")
         else:
-            menu.addAction(f"查看 ({count}篇)", self._view_handler)
-            menu.addAction(f"编辑 ({count}篇)", self._edit_handler)
+            menu.addAction(_(f"查看 ({count}篇)"), self._view_handler)
+            menu.addAction(_(f"编辑 ({count}篇)"), self._edit_handler)
             menu.addSeparator()
-            menu.addAction(f"批量删除 ({count}篇)", self._batch_delete_handler)
-            menu.addAction(f"批量打标签 ({count}篇)", self._batch_tag_handler)
+            menu.addAction(_(f"批量删除 ({count}篇)"), self._batch_delete_handler)
+            menu.addAction(_(f"批量打标签 ({count}篇)"), self._batch_tag_handler)
             logger.debug(f"显示批量菜单: count={count}")
 
         menu.exec(self.parent.table_view.viewport().mapToGlobal(position))
@@ -77,16 +79,16 @@ class ContextMenuFactory:
         if selection_count == 0:
             return None
         elif selection_count == 1:
-            menu.addAction("查看", handlers.get('view'))
-            menu.addAction("编辑", handlers.get('edit'))
-            menu.addAction("删除", handlers.get('delete'))
+            menu.addAction(_("查看"), handlers.get('view'))
+            menu.addAction(_("编辑"), handlers.get('edit'))
+            menu.addAction(_("删除"), handlers.get('delete'))
             logger.debug("创建单选上下文菜单")
         else:
-            menu.addAction(f"查看 ({selection_count}篇)", handlers.get('view'))
-            menu.addAction(f"编辑 ({selection_count}篇)", handlers.get('edit'))
+            menu.addAction(_(f"查看 ({selection_count}篇)"), handlers.get('view'))
+            menu.addAction(_(f"编辑 ({selection_count}篇)"), handlers.get('edit'))
             menu.addSeparator()
-            menu.addAction(f"批量删除 ({selection_count}篇)", handlers.get('batch_delete'))
-            menu.addAction(f"批量打标签 ({selection_count}篇)", handlers.get('batch_tag'))
+            menu.addAction(_(f"批量删除 ({selection_count}篇)"), handlers.get('batch_delete'))
+            menu.addAction(_(f"批量打标签 ({selection_count}篇)"), handlers.get('batch_tag'))
             logger.debug(f"创建批量上下文菜单: count={selection_count}")
 
         return menu

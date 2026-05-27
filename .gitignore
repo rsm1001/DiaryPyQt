@@ -57,3 +57,10 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 !data/.gitkeep
+
+# i18n - compiled translations (keep .po source files)
+i18n/__pycache__/
+i18n/*/__pycache__/
+i18n/*/*/__pycache__/
+i18n/locale/*/LC_MESSAGES/*.mo
+i18n/locale/*.pot

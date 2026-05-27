@@ -1,0 +1,650 @@
+# Chinese (Simplified) translations for DiaryPyQt.
+# Copyright (C) 2026 THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the DiaryPyQt package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: DiaryPyQt 1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-05-26 00:00+0800\n"
+"PO-Revision-Date: 2026-05-26 00:00+0800\n"
+"Last-Translator: \n"
+"Language-Team: Chinese (Simplified) <zh_CN@li.org>\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: main.py
+msgid "日记管理系统 - PyQt版"
+msgstr "日记管理系统 - PyQt版"
+
+#: views/main_window.py
+msgid "日记管理系统 - PyQt版"
+msgstr "日记管理系统 - PyQt版"
+
+#: views/components/menu_bar.py
+msgid "文件"
+msgstr "文件"
+
+msgid "导出数据..."
+msgstr "导出数据..."
+
+msgid "导入数据..."
+msgstr "导入数据..."
+
+msgid "退出"
+msgstr "退出"
+
+msgid "编辑"
+msgstr "编辑"
+
+msgid "新建日记"
+msgstr "新建日记"
+
+msgid "搜索"
+msgstr "搜索"
+
+msgid "视图"
+msgstr "视图"
+
+msgid "切换主题"
+msgstr "切换主题"
+
+msgid "自定义列表列..."
+msgstr "自定义列表列..."
+
+msgid "工具"
+msgstr "工具"
+
+msgid "统计信息"
+msgstr "统计信息"
+
+msgid "运行测试"
+msgstr "运行测试"
+
+msgid "垃圾桶"
+msgstr "垃圾桶"
+
+msgid "帮助"
+msgstr "帮助"
+
+msgid "关于"
+msgstr "关于"
+
+#: views/components/toolbar.py
+msgid "新建日记"
+msgstr "新建日记"
+
+msgid "随机查看"
+msgstr "随机查看"
+
+msgid "随机删除"
+msgstr "随机删除"
+
+msgid "搜索"
+msgstr "搜索"
+
+msgid "切换主题"
+msgstr "切换主题"
+
+msgid "统计"
+msgstr "统计"
+
+msgid "刷新"
+msgstr "刷新"
+
+msgid "垃圾桶"
+msgstr "垃圾桶"
+
+msgid "运行测试"
+msgstr "运行测试"
+
+msgid "运行日记管理系统的单元测试和集成测试（统计、权重计算、日记筛选等核心业务逻辑）"
+msgstr "运行日记管理系统的单元测试和集成测试（统计、权重计算、日记筛选等核心业务逻辑）"
+
+msgid "批量删除"
+msgstr "批量删除"
+
+msgid "批量打标签"
+msgstr "批量打标签"
+
+#: views/components/calendar_panel.py
+msgid "📅 日历查询"
+msgstr "📅 日历查询"
+
+msgid "全部日记"
+msgstr "全部日记"
+
+msgid "显示全部日记"
+msgstr "显示全部日记"
+
+#: views/components/detail_panel.py
+msgid "请选择一篇日记查看详情"
+msgstr "请选择一篇日记查看详情"
+
+msgid "ID:"
+msgstr "ID:"
+
+msgid "日期:"
+msgstr "日期:"
+
+msgid "查看次数:"
+msgstr "查看次数:"
+
+msgid "标签:"
+msgstr "标签:"
+
+msgid "内容:"
+msgstr "内容:"
+
+#: views/components/status_bar_manager.py
+msgid "总计:"
+msgstr "总计:"
+
+msgid "篇日记"
+msgstr "篇日记"
+
+msgid "总查看次数:"
+msgstr "总查看次数:"
+
+msgid "平均查看次数:"
+msgstr "平均查看次数:"
+
+msgid "今日查看:"
+msgstr "今日查看:"
+
+msgid "昨日查看:"
+msgstr "昨日查看:"
+
+msgid "历史最佳:"
+msgstr "历史最佳:"
+
+msgid "日期过滤:"
+msgstr "日期过滤:"
+
+#: views/components/context_menu_builder.py
+msgid "查看"
+msgstr "查看"
+
+msgid "编辑"
+msgstr "编辑"
+
+msgid "删除"
+msgstr "删除"
+
+msgid "篇"
+msgstr "篇"
+
+msgid "批量删除"
+msgstr "批量删除"
+
+msgid "批量打标签"
+msgstr "批量打标签"
+
+#: views/dialogs/diary_dialogs.py
+msgid "编辑日记"
+msgstr "编辑日记"
+
+msgid "新建日记"
+msgstr "新建日记"
+
+msgid "日期:"
+msgstr "日期:"
+
+msgid "查看次数:"
+msgstr "查看次数:"
+
+msgid "保存"
+msgstr "保存"
+
+msgid "取消"
+msgstr "取消"
+
+msgid "查看日记"
+msgstr "查看日记"
+
+msgid "保存标签"
+msgstr "保存标签"
+
+msgid "关闭"
+msgstr "关闭"
+
+msgid "成功"
+msgstr "成功"
+
+msgid "标签更新成功！"
+msgstr "标签更新成功！"
+
+msgid "错误"
+msgstr "错误"
+
+msgid "标签更新失败！"
+msgstr "标签更新失败！"
+
+#: views/dialogs/trash_dialog.py
+msgid "垃圾桶"
+msgstr "垃圾桶"
+
+msgid "关键词:"
+msgstr "关键词:"
+
+msgid "搜索"
+msgstr "搜索"
+
+msgid "刷新"
+msgstr "刷新"
+
+msgid "共 0 条记录"
+msgstr "共 0 条记录"
+
+msgid "恢复"
+msgstr "恢复"
+
+msgid "永久删除"
+msgstr "永久删除"
+
+msgid "清空垃圾桶"
+msgstr "清空垃圾桶"
+
+msgid "关闭"
+msgstr "关闭"
+
+msgid "确认恢复"
+msgstr "确认恢复"
+
+msgid "确定要恢复这篇日记吗？"
+msgstr "确定要恢复这篇日记吗？"
+
+msgid "日记已恢复！"
+msgstr "日记已恢复！"
+
+msgid "新ID:"
+msgstr "新ID:"
+
+msgid "恢复失败！"
+msgstr "恢复失败！"
+
+msgid "警告"
+msgstr "警告"
+
+msgid "请先选择一篇日记"
+msgstr "请先选择一篇日记"
+
+msgid "危险操作"
+msgstr "危险操作"
+
+msgid "<b>确定要永久删除吗？此操作不可恢复！</b><br><br>"
+msgstr "<b>确定要永久删除吗？此操作不可恢复！</b><br><br>"
+
+msgid "已永久删除"
+msgstr "已永久删除"
+
+msgid "删除失败！"
+msgstr "删除失败！"
+
+msgid "提示"
+msgstr "提示"
+
+msgid "垃圾桶已经是空的"
+msgstr "垃圾桶已经是空的"
+
+msgid "<b>确定要清空整个垃圾桶吗？此操作不可恢复！</b><br><br>"
+msgstr "<b>确定要清空整个垃圾桶吗？此操作不可恢复！</b><br><br>"
+
+msgid "将永久删除"
+msgstr "将永久删除"
+
+msgid "篇日记。"
+msgstr "篇日记。"
+
+msgid "已清空垃圾桶，永久删除"
+msgstr "已清空垃圾桶，永久删除"
+
+#: views/dialogs/diary_action_helper.py
+msgid "确认删除"
+msgstr "确认删除"
+
+msgid "确定要删除日记 ID:"
+msgstr "确定要删除日记 ID:"
+
+msgid "吗？\n\n内容:"
+msgstr "吗？\n\n内容:"
+
+msgid "确认随机删除"
+msgstr "确认随机删除"
+
+msgid "即将随机删除一篇日记："
+msgstr "即将随机删除一篇日记："
+
+msgid "ID:"
+msgstr "ID:"
+
+msgid "日期:"
+msgstr "日期:"
+
+msgid "查看次数:"
+msgstr "查看次数:"
+
+msgid "内容:"
+msgstr "内容:"
+
+msgid "确定要删除这条日记吗？"
+msgstr "确定要删除这条日记吗？"
+
+msgid "确认批量删除"
+msgstr "确认批量删除"
+
+msgid "确定要删除这"
+msgstr "确定要删除这"
+
+msgid "篇日记吗？\n\n此操作不可恢复。"
+msgstr "篇日记吗？\n\n此操作不可恢复。"
+
+msgid "提示"
+msgstr "提示"
+
+msgid "当前没有日记"
+msgstr "当前没有日记"
+
+msgid "请先选择一篇日记"
+msgstr "请先选择一篇日记"
+
+msgid "日记 ID:"
+msgstr "日记 ID:"
+
+msgid "已删除"
+msgstr "已删除"
+
+msgid "成功"
+msgstr "成功"
+
+msgid "完成"
+msgstr "完成"
+
+msgid "成功"
+msgstr "成功"
+
+msgid "篇，失败"
+msgstr "篇，失败"
+
+msgid "篇"
+msgstr "篇"
+
+msgid "关于"
+msgstr "关于"
+
+msgid "日记管理系统 PyQt版\n\n版本: 1.0\n作者: Assistant\n\n基于PyQt6开发的现代化日记管理系统。"
+msgstr "日记管理系统 PyQt版\n\n版本: 1.0\n作者: Assistant\n\n基于PyQt6开发的现代化日记管理系统。"
+
+#: views/dialogs/tag_manager_dialog.py
+msgid "标签选择"
+msgstr "标签选择"
+
+msgid "搜索标签:"
+msgstr "搜索标签:"
+
+msgid "输入关键词过滤标签..."
+msgstr "输入关键词过滤标签..."
+
+msgid "刷新标签"
+msgstr "刷新标签"
+
+msgid "添加标签"
+msgstr "添加标签"
+
+msgid "删除未用标签"
+msgstr "删除未用标签"
+
+msgid "管理标签"
+msgstr "管理标签"
+
+msgid "添加新标签"
+msgstr "添加新标签"
+
+msgid "请输入标签名称:"
+msgstr "请输入标签名称:"
+
+msgid "标签 '{tag_name}' 添加成功！"
+msgstr "标签 '{tag_name}' 添加成功！"
+
+msgid "标签 '{tag_name}' 已存在或添加失败！"
+msgstr "标签 '{tag_name}' 已存在或添加失败！"
+
+msgid "没有未被使用的标签，无需删除。"
+msgstr "没有未被使用的标签，无需删除。"
+
+msgid "确认删除未使用标签"
+msgstr "确认删除未使用标签"
+
+msgid "以下标签未被任何日记使用，是否删除？"
+msgstr "以下标签未被任何日记使用，是否删除？"
+
+msgid "确认删除吗？"
+msgstr "确认删除吗？"
+
+msgid "删除结果"
+msgstr "删除结果"
+
+msgid "删除完成！\n成功删除:"
+msgstr "删除完成！\n成功删除:"
+
+msgid "个\n失败:"
+msgstr "个\n失败:"
+
+msgid "当前没有标签。"
+msgstr "当前没有标签。"
+
+msgid "选择标签"
+msgstr "选择标签"
+
+msgid "选择要管理的标签:"
+msgstr "选择要管理的标签:"
+
+msgid "标签正在被使用"
+msgstr "标签正在被使用"
+
+msgid "标签 '{selected_tag}' 正在被 {usage_count} 篇日记使用，无法删除。"
+msgstr "标签 '{selected_tag}' 正在被 {usage_count} 篇日记使用，无法删除。"
+
+msgid "标签 '{selected_tag}' 未被任何日记使用，是否删除？"
+msgstr "标签 '{selected_tag}' 未被任何日记使用，是否删除？"
+
+msgid "标签 '{selected_tag}' 已删除。"
+msgstr "标签 '{selected_tag}' 已删除。"
+
+msgid "失败"
+msgstr "失败"
+
+msgid "删除标签 '{selected_tag}' 失败。"
+msgstr "删除标签 '{selected_tag}' 失败。"
+
+msgid "删除标签时发生错误:"
+msgstr "删除标签时发生错误:"
+
+#: views/dialogs/import_export_helper.py
+msgid "导出数据"
+msgstr "导出数据"
+
+msgid "成功"
+msgstr "成功"
+
+msgid "数据导出成功"
+msgstr "数据导出成功"
+
+msgid "错误"
+msgstr "错误"
+
+msgid "数据导出失败"
+msgstr "数据导出失败"
+
+msgid "导入数据"
+msgstr "导入数据"
+
+msgid "导入结果"
+msgstr "导入结果"
+
+msgid "成功导入"
+msgstr "成功导入"
+
+msgid "篇日记"
+msgstr "篇日记"
+
+#: views/dialogs/statistics_dialog.py
+msgid "统计"
+msgstr "统计"
+
+msgid "暂无日记"
+msgstr "暂无日记"
+
+msgid "统计信息"
+msgstr "统计信息"
+
+msgid "统计信息："
+msgstr "统计信息："
+
+msgid "总计日记数："
+msgstr "总计日记数："
+
+msgid "总查看次数："
+msgstr "总查看次数："
+
+msgid "平均查看次数："
+msgstr "平均查看次数："
+
+msgid "昨日查看总数："
+msgstr "昨日查看总数："
+
+msgid "历史最佳单日："
+msgstr "历史最佳单日："
+
+msgid "最多查看的日记："
+msgstr "最多查看的日记："
+
+msgid "最少查看的日记："
+msgstr "最少查看的日记："
+
+#: views/dialogs/batch_tag_dialog.py
+msgid "批量打标签 - 已选"
+msgstr "批量打标签 - 已选"
+
+msgid "篇日记"
+msgstr "篇日记"
+
+msgid "将为以下日记打标签：ID ["
+msgstr "将为以下日记打标签：ID ["
+
+msgid "保存"
+msgstr "保存"
+
+msgid "取消"
+msgstr "取消"
+
+#: views/search_dialog.py
+msgid "搜索日记"
+msgstr "搜索日记"
+
+msgid "关键词:"
+msgstr "关键词:"
+
+msgid "搜索"
+msgstr "搜索"
+
+msgid "标签"
+msgstr "标签"
+
+msgid "刷新标签"
+msgstr "刷新标签"
+
+msgid "清除筛选"
+msgstr "清除筛选"
+
+msgid "删除未用标签"
+msgstr "删除未用标签"
+
+msgid "搜索结果"
+msgstr "搜索结果"
+
+msgid "共 0 条结果"
+msgstr "共 0 条结果"
+
+msgid "确定"
+msgstr "确定"
+
+msgid "取消"
+msgstr "取消"
+
+msgid "全部日记"
+msgstr "全部日记"
+
+msgid "没有找到匹配的日记"
+msgstr "没有找到匹配的日记"
+
+#: views/dialogs/test_dialog_helper.py
+msgid "运行测试"
+msgstr "运行测试"
+
+msgid "确定要运行所有单元测试吗？这可能需要一些时间。"
+msgstr "确定要运行所有单元测试吗？这可能需要一些时间。"
+
+msgid "测试结果"
+msgstr "测试结果"
+
+msgid "所有测试通过！"
+msgstr "所有测试通过！"
+
+msgid "有测试用例失败！"
+msgstr "有测试用例失败！"
+
+#: views/dialogs/column_settings_dialog.py
+msgid "自定义列表列"
+msgstr "自定义列表列"
+
+#: views/test_runner_thread.py
+msgid "正在运行测试..."
+msgstr "正在运行测试..."
+
+#: views/components/column_config_manager.py
+msgid "ID"
+msgstr "ID"
+
+msgid "日期"
+msgstr "日期"
+
+msgid "内容"
+msgstr "内容"
+
+msgid "查看次数"
+msgstr "查看次数"
+
+msgid "标签"
+msgstr "标签"
+
+#: views/components/menu_bar.py
+msgid "语言"
+msgstr "语言"
+
+#: views/delegates/tag_delegate.py
+msgid "无标签"
+msgstr "无标签"
+
+#: views/search_dialog.py
+msgid "暂无标签"
+msgstr "暂无标签"
+
+#: views/components/detail_panel.py
+msgid "ID:"
+msgstr "ID:"
+
+msgid "日期:"
+msgstr "日期:"
+
+msgid "查看次数:"
+msgstr "查看次数:"
+
+msgid "标签:"
+msgstr "标签:"
+
+msgid "内容:"
+msgstr "内容:"

@@ -4,6 +4,8 @@
 import logging
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
+from i18n import _
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,18 +24,18 @@ class ImportExportHelper:
             bool: 导出是否成功
         """
         file_path, _ = QFileDialog.getSaveFileName(
-            parent, "导出数据", "", "JSON Files (*.json);;All Files (*)"
+            parent, _("导出数据"), "", "JSON Files (*.json);;All Files (*)"
         )
 
         if not file_path:
             return False
 
         if controller.export_to_json(file_path):
-            QMessageBox.information(parent, "成功", "数据导出成功")
+            QMessageBox.information(parent, _("成功"), _("数据导出成功"))
             logger.info(f"导出数据: {file_path}")
             return True
         else:
-            QMessageBox.critical(parent, "错误", "数据导出失败")
+            QMessageBox.critical(parent, _("错误"), _("数据导出失败"))
             logger.error(f"导出数据失败: {file_path}")
             return False
 
@@ -50,14 +52,14 @@ class ImportExportHelper:
             int: 导入的日记数量，-1 表示用户取消
         """
         file_path, _ = QFileDialog.getOpenFileName(
-            parent, "导入数据", "", "JSON Files (*.json);;All Files (*)"
+            parent, _("导入数据"), "", "JSON Files (*.json);;All Files (*)"
         )
 
         if not file_path:
             return -1
 
         result = controller.migrate_from_json(file_path)
-        QMessageBox.information(parent, "导入结果", f"成功导入 {result} 篇日记")
+        QMessageBox.information(parent, _("导入结果"), f"{_('成功导入')} {result} {_('篇日记')}")
         logger.info(f"导入数据: {file_path}, 导入 {result} 篇")
 
         if load_callback:

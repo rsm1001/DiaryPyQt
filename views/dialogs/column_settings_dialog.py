@@ -9,6 +9,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QListWidget,
 from PyQt6.QtCore import Qt
 from views.components.column_config_manager import ColumnConfigManager
 
+from i18n import _
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,20 +33,20 @@ class ColumnSettingsDialog(QDialog):
 
     def _setup_ui(self):
         """设置UI"""
-        self.setWindowTitle("自定义列表列")
+        self.setWindowTitle(_("自定义列表列"))
         self.setMinimumSize(450, 350)
         self.setModal(True)
 
         main_layout = QVBoxLayout(self)
 
         # 说明标签
-        hint_label = QLabel("勾选要显示的列，可拖拽调整显示顺序。点击行区域切换显示/隐藏。")
+        hint_label = QLabel(_("勾选要显示的列，可拖拽调整显示顺序。点击行区域切换显示/隐藏。"))
         hint_label.setStyleSheet("color: #666; font-size: 12px;")
         hint_label.setWordWrap(True)
         main_layout.addWidget(hint_label)
 
         # 列列表区域
-        list_group = QGroupBox("显示列（拖拽调整顺序）")
+        list_group = QGroupBox(_("显示列（拖拽调整顺序）"))
         list_layout = QVBoxLayout()
 
         self.column_list = QListWidget()
@@ -65,7 +67,7 @@ class ColumnSettingsDialog(QDialog):
         # 按钮区域
         button_layout = QHBoxLayout()
 
-        self.reset_btn = QPushButton("重置默认")
+        self.reset_btn = QPushButton(_("重置默认"))
         self.reset_btn.clicked.connect(self._on_reset)
         button_layout.addWidget(self.reset_btn)
 

@@ -5,6 +5,8 @@ import logging
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
 from PyQt6.QtCore import Qt
 
+from i18n import _
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,7 +24,7 @@ class DetailPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
 
-        self.detail_label = QLabel("请选择一篇日记查看详情")
+        self.detail_label = QLabel(_("请选择一篇日记查看详情"))
         self.detail_label.setWordWrap(True)
         self.detail_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.detail_label.setContentsMargins(10, 10, 10, 10)
@@ -48,7 +50,7 @@ class DetailPanel(QWidget):
             self.detail_label.setText(content)
             logger.info(f"更新详情面板: diary_id={diary.id}")
         else:
-            self.detail_label.setText("请选择一篇日记查看详情")
+            self.detail_label.setText(_("请选择一篇日记查看详情"))
             logger.debug("清空详情面板")
 
     def set_max_height(self, max_height: int, min_height: int = 80):
