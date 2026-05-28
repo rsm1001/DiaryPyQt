@@ -363,15 +363,34 @@ class EnhancedDatabaseManager(
 
 
 # =============================================================================
-# 单例模式
+# 实例池模式（按路径缓存）
 # =============================================================================
 
-_enhanced_db_manager: Optional[EnhancedDatabaseManager] = None
+_enhanced_db_managers: Dict[str, EnhancedDatabaseManager] = {}
 
 
 def get_enhanced_db_manager(db_path: str = None) -> EnhancedDatabaseManager:
-    """获取增强版数据库管理器单例"""
-    global _enhanced_db_manager
-    if _enhanced_db_manager is None:
-        _enhanced_db_manager = EnhancedDatabaseManager(db_path)
-    return _enhanced_db_manager
+    """获取增强版数据库管理器（按路径缓存实例）"""
+    global _enhanced_db_managers
+
+    if db_path is None:
+        from config.config import get_db_path
+        db_path = get_db_path()
+
+    if db_path not in _enhanced_db_managers:
+        _enhanced_db_managers[db_path] = EnhancedDatabaseManager(db_path)
+
+    return _enhanced_db_managers[db_path]
+
+
+def reset_enhanced_db_manager(db_path: str = None):
+    """重置指定路径的实例（下次调用会重新创建）"""
+    global _enhanced_db_managers
+
+    if db_path is None:
+        from config.config import get_db_path
+        db_path = get_db_path()
+
+    if db_path in _enhanced_db_managers:
+        _enhanced_db_managers[db_path].close()
+        del _enhanced_db_managers[db_path]
