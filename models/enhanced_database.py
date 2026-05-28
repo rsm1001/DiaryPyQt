@@ -133,6 +133,10 @@ class EnhancedDatabaseManager(
 
     def _init_database(self):
         """初始化数据库表、索引和性能配置"""
+        # 确保连接池已初始化（restore_database 等场景可能已关闭连接池）
+        if self._write_conn is None:
+            self._init_pool()
+
         conn = self._get_write_connection()
         cursor = conn.cursor()
 
@@ -238,8 +242,8 @@ class EnhancedDatabaseManager(
             )
         ''')
 
-        # 初始化 FTS 表（将已有数据灌入）
-        cursor.execute('INSERT OR IGNORE INTO diaries_fts(rowid, content) SELECT id, content FROM diaries')
+        # 初始化 FTS 表（将已有数据灌入，使用 REPLACE 确保已存在的行也被更新）
+        cursor.execute('INSERT OR REPLACE INTO diaries_fts(rowid, content) SELECT id, content FROM diaries')
 
         # ---- FTS5 同步触发器 ----
         # INSERT 触发器

@@ -292,6 +292,7 @@ class TrashMixin:
                                 tag_id = new_tag['id']
                 else:
                     # 兼容旧数据：没有 original_tag_id，通过名称查找
+                    # 注意：tags.name 有唯一约束，同名标签必是同一标签，可直接关联
                     existing_by_name = self.get_tag_by_name(tag['name'])
                     if existing_by_name:
                         tag_id = existing_by_name['id']
