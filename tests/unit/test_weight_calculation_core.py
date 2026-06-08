@@ -177,16 +177,15 @@ class TestCalculateRawWeights:
     # =========================================================================
 
     def test_future_date_handling(self, sample_diary_base, fixed_now):
-        """未来日期会产生负的days_ago，导致math.domain error（生产代码bug）
-
-        这是生产代码的已知问题：math.log对负数会抛出ValueError。
-        此测试验证当前行为（会抛出异常），后续修复生产代码后可移除expectedException。
-        """
+        """未来日期应被安全处理：days_ago clamp 到 0，time_weight_raw = log(1) = 0"""
         future_date = fixed_now + timedelta(days=7)
         diary = {**sample_diary_base, 'date': future_date.strftime("%Y-%m-%d %H:%M:%S")}
 
-        with pytest.raises(ValueError, match="math domain error"):
-            calculate_raw_weights(diary, fixed_now, 'random')
+        result = calculate_raw_weights(diary, fixed_now, 'random')
+
+        # 不再抛 ValueError；未来日期的 time 权重等同于"今天"
+        assert result['days_ago'] == -7
+        assert result['time_weight_raw'] == 0
 
     def test_very_old_date(self, sample_diary_base, fixed_now):
         """极老日期（10年前）仍能正常计算"""

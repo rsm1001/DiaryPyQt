@@ -272,7 +272,7 @@ class StatisticsService:
     def get_today_total_views(self) -> int:
         """
         获取今日查看次数（实时查询，统计今天所有查看动作数）
-        
+
         Returns:
             今日查看次数
         """
@@ -290,3 +290,49 @@ class StatisticsService:
             fetch='one'
         )
         return result['total_views'] if result else 0
+
+    def get_diary_date_range(self):
+        """
+        获取日记的日期边界（最早一篇 / 最近一篇）。
+
+        Returns:
+            (min_date, max_date) 字符串元组，格式 "yyyy-MM-dd"。
+            空库时返回 (None, None)。
+        """
+        row = self.db_manager._execute(
+            "SELECT MIN(date(d.date)) as min_day, MAX(date(d.date)) as max_day "
+            "FROM diaries d",
+            fetch='one'
+        )
+        if not row or not row.get('min_day') or not row.get('max_day'):
+            return (None, None)
+        return (row['min_day'], row['max_day'])
+
+    def get_diary_counts_by_date_range(self, start_date, end_date):
+        """
+        按天聚合指定区间内的日记数量。
+
+        Args:
+            start_date: 起始日期，格式 "yyyy-MM-dd"（含）。
+            end_date: 结束日期，格式 "yyyy-MM-dd"（含）。
+
+        Returns:
+            dict，key 为 "yyyy-MM-dd"，value 为当日日记数。
+            仅返回存在日记的日期，调用方需自行补 0。
+        """
+        if not start_date or not end_date:
+            return {}
+
+        rows = self.db_manager._execute(
+            """
+            SELECT date(d.date) as day, COUNT(*) as cnt
+            FROM diaries d
+            WHERE date(d.date) BETWEEN ? AND ?
+            GROUP BY day
+            ORDER BY day
+            """,
+            (start_date, end_date),
+            fetch='all'
+        ) or []
+
+        return {row['day']: int(row['cnt']) for row in rows}

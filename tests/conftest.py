@@ -14,6 +14,14 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+@pytest.fixture(scope="session")
+def qapp():
+    """提供 Qt 应用实例，供需要 QWidget 的测试复用"""
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication(sys.argv)
+    yield app
+
+
 # =============================================================================
 # 日期时间相关 Fixtures
 # =============================================================================

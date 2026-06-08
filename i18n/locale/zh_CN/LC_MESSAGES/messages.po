@@ -625,6 +625,37 @@ msgstr "标签"
 msgid "语言"
 msgstr "语言"
 
+msgid "显示热力图"
+msgstr "显示热力图"
+
+#: views/components/heatmap_panel.py
+msgid "月历视图"
+msgstr "月历视图"
+
+msgid "热力图"
+msgstr "热力图"
+
+msgid "🔥 写作热力图"
+msgstr "🔥 写作热力图"
+
+msgid "点击日期查看当日日记 · 颜色越深当日篇数越多"
+msgstr "点击日期查看当日日记 · 颜色越深当日篇数越多"
+
+msgid "暂无数据"
+msgstr "暂无数据"
+
+msgid "无日记"
+msgstr "无日记"
+
+msgid "篇"
+msgstr "篇"
+
+msgid "共 {n} 篇 · {d} 天有记录"
+msgstr "共 {n} 篇 · {d} 天有记录"
+
+msgid "悬停查看 · 点击跳转 · 颜色越深当日篇数越多"
+msgstr "悬停查看 · 点击跳转 · 颜色越深当日篇数越多"
+
 #: views/delegates/tag_delegate.py
 msgid "无标签"
 msgstr "无标签"

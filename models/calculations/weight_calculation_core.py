@@ -24,7 +24,9 @@ def calculate_raw_weights(diary: Dict[str, Any], now: datetime, selection_type: 
     
     # 计算距离今天的天数
     days_ago = (now - date).days
-    time_weight_raw = math.log(days_ago + 1)  # 加1避免log(0)
+    # 未来日期（days_ago < 0）按"今天"处理，避免 math.log 报 domain error
+    days_ago_for_weight = max(0, days_ago)
+    time_weight_raw = math.log(days_ago_for_weight + 1)  # 加1避免log(0)
     
     if selection_type == 'deletion':
         # 删除模式：偏向时间久远且查看次数多的日记

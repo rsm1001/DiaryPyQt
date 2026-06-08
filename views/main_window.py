@@ -3,8 +3,11 @@
 """
 import sys
 import logging
+from datetime import datetime
+from typing import Dict
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                            QSplitter, QMessageBox, QDialog, QTableView, QStatusBar)
+                            QSplitter, QMessageBox, QDialog, QTableView, QStatusBar,
+                            QTabWidget)
 from PyQt6.QtCore import Qt
 from i18n import _
 from views.dialogs.diary_action_helper import DiaryActionHelper, AboutDialog
@@ -21,6 +24,7 @@ from utils.formatters import format_tags_html
 from views.components.toolbar import MainToolBar
 from views.components.menu_bar import MainMenuBar
 from views.components.calendar_panel import CalendarPanelFactory
+from views.components.heatmap_panel import HeatmapPanelFactory
 from views.components.detail_panel import DetailPanel
 from views.components.status_bar_manager import StatusBarManager
 from views.components.table_view_manager import TableViewManager
@@ -45,6 +49,7 @@ class MainWindow(QMainWindow):
         self.db_path = db_path
         self.current_theme = 'light'
         self.current_date_filter = None
+        self.show_heatmap = True
 
         # 启动时清理旧查看日志
         self.controller.cleanup_old_view_logs()
@@ -84,15 +89,36 @@ class MainWindow(QMainWindow):
         # 上部分割器
         top_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # 创建日历面板
+        # 创建侧边栏（QTabWidget 容纳月历视图与热力图）
+        sidebar_tabs = QTabWidget()
+        sidebar_tabs.setObjectName("SidebarTabs")
+        sidebar_tabs.setFixedWidth(280)
+
+        # 月历视图 tab
         calendar_panel = CalendarPanelFactory.create_calendar_panel(
             self,
             on_date_selected=self._on_date_selected,
             on_show_all=self._show_all_diaries
         )
-        calendar_panel.setFixedWidth(260)
         self.calendar_panel = calendar_panel
-        top_splitter.addWidget(calendar_panel)
+        self.calendar_tab_index = sidebar_tabs.addTab(
+            calendar_panel, _("月历视图")
+        )
+
+        # 热力图 tab
+        heatmap_panel = HeatmapPanelFactory.create_heatmap_panel(
+            self,
+            on_date_clicked=self._on_date_selected,
+            on_month_changed=self._on_heatmap_month_changed,
+        )
+        self.heatmap_panel = heatmap_panel
+        self.heatmap_tab_index = sidebar_tabs.addTab(
+            heatmap_panel, _("热力图")
+        )
+
+        self.sidebar_tabs = sidebar_tabs
+        self.sidebar_tabs.currentChanged.connect(self._on_sidebar_tab_changed)
+        top_splitter.addWidget(sidebar_tabs)
 
         # 创建表格视图
         self.model = DiaryTableModel(self.column_config_manager)
@@ -142,6 +168,11 @@ class MainWindow(QMainWindow):
         date_filter_label.setStyleSheet("color: #868e96; font-size: 12px; padding: 6px;")
         logger.debug("显示全部日记")
 
+    def _on_sidebar_tab_changed(self, index: int):
+        """侧栏 tab 切换：切到月历视图时清除日期筛选"""
+        if index == self.calendar_tab_index:
+            self._show_all_diaries()
+
     def center_on_screen(self):
         """使窗口居中于屏幕"""
         screen_geometry = QApplication.primaryScreen().geometry()
@@ -164,7 +195,7 @@ class MainWindow(QMainWindow):
         logger.info(f"加载日记数据: {len(diaries)} 篇")
 
     def _update_calendar_diary_marks(self):
-        """更新日历标记"""
+        """更新日历标记（含月历视图与热力图）"""
         all_diaries = self.controller.get_all_diaries(limit=10000)
         diary_dates = set()
         for diary in all_diaries:
@@ -172,7 +203,78 @@ class MainWindow(QMainWindow):
                 date_part = diary.date.split(' ')[0] if ' ' in diary.date else diary.date
                 diary_dates.add(date_part)
         self.calendar_panel._calendar.set_diary_dates(diary_dates)
+        self._refresh_heatmap()
         logger.debug(f"更新日历标记: {len(diary_dates)} 个日期")
+
+    def _refresh_heatmap(self):
+        """刷新热力图：一次性拉全量历史，按月份导航展示当前月"""
+        try:
+            stats_svc = self.controller.db_manager.statistics_service
+            date_range = stats_svc.get_diary_date_range()
+            today = datetime.now().strftime('%Y-%m-%d')
+            today_dt = datetime.strptime(today, '%Y-%m-%d')
+
+            if not date_range or not date_range[0] or not date_range[1]:
+                self.heatmap_panel._heatmap.set_data({})
+                self.heatmap_panel._heatmap.set_today(today)
+                self.heatmap_panel._heatmap.set_summary(0, 0)
+                self.heatmap_panel._summary_label.setText("")
+                return
+
+            earliest, latest = date_range
+            # 全量历史一次性拉取
+            counts = stats_svc.get_diary_counts_by_date_range(earliest, latest)
+
+            # 初始月 = max(今天, 最新日记) 所在月
+            latest_dt = datetime.strptime(latest, '%Y-%m-%d')
+            anchor = max(today_dt, latest_dt)
+            init_year, init_month = anchor.year, anchor.month
+
+            self.heatmap_panel._heatmap.set_data(counts)
+            self.heatmap_panel._heatmap.set_today(today)
+            self.heatmap_panel.set_month(init_year, init_month)
+            self.heatmap_panel.set_today_enabled(
+                not (init_year == today_dt.year and init_month == today_dt.month)
+            )
+            self._update_heatmap_summary(init_year, init_month, counts)
+        except Exception as exc:
+            logger.warning(f"刷新热力图失败: {exc}")
+            self.heatmap_panel._heatmap.set_data({})
+            self.heatmap_panel._heatmap.set_summary(0, 0)
+            self.heatmap_panel._summary_label.setText("")
+
+    def _on_heatmap_month_changed(self, year: int, month: int):
+        """月份切换回调：仅刷新 summary（不重查 DB）"""
+        counts = self.heatmap_panel._heatmap._counts
+        self._update_heatmap_summary(year, month, counts)
+        today_dt = datetime.now()
+        self.heatmap_panel.set_today_enabled(
+            not (year == today_dt.year and month == today_dt.month)
+        )
+
+    def _update_heatmap_summary(self, year: int, month: int,
+                               counts: Dict[str, int]) -> None:
+        """按月份过滤 counts，更新 summary 标签"""
+        prefix = f"{year:04d}-{month:02d}-"
+        month_counts = {d: n for d, n in counts.items() if d.startswith(prefix)}
+        total = sum(month_counts.values())
+        active = len(month_counts)
+        self.heatmap_panel._heatmap.set_summary(total=total, active_days=active)
+        if total == 0 and active == 0:
+            self.heatmap_panel._summary_label.setText(
+                _("当月暂无记录")
+            )
+        else:
+            self.heatmap_panel._summary_label.setText(
+                _("当月 {n} 篇 · {d} 天有记录").format(n=total, d=active)
+            )
+
+    def toggle_heatmap_visibility(self, checked: bool):
+        """切换热力图 tab 的显隐（供菜单调用）"""
+        self.show_heatmap = bool(checked)
+        if hasattr(self, 'sidebar_tabs'):
+            self.sidebar_tabs.setTabVisible(self.heatmap_tab_index, self.show_heatmap)
+        logger.info(f"热力图显隐: {self.show_heatmap}")
 
     def update_status_bar(self):
         """更新状态栏"""
@@ -350,6 +452,8 @@ class MainWindow(QMainWindow):
         """应用主题"""
         theme_manager = ThemeManager()
         theme_manager.apply_theme(self, self.current_theme)
+        if hasattr(self, 'heatmap_panel') and self.heatmap_panel is not None:
+            self.heatmap_panel._heatmap.set_theme(self.current_theme)
 
     def on_language_changed(self, lang):
         """语言切换后刷新UI"""

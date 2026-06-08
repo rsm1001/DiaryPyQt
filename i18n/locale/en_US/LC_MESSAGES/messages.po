@@ -625,6 +625,37 @@ msgstr "Tags"
 msgid "语言"
 msgstr "Language"
 
+msgid "显示热力图"
+msgstr "Show Heatmap"
+
+#: views/components/heatmap_panel.py
+msgid "月历视图"
+msgstr "Monthly"
+
+msgid "热力图"
+msgstr "Heatmap"
+
+msgid "🔥 写作热力图"
+msgstr "🔥 Writing Heatmap"
+
+msgid "点击日期查看当日日记 · 颜色越深当日篇数越多"
+msgstr "Click a day to view diaries · Darker = more entries"
+
+msgid "暂无数据"
+msgstr "No data"
+
+msgid "无日记"
+msgstr "No diaries"
+
+msgid "篇"
+msgstr ""
+
+msgid "共 {n} 篇 · {d} 天有记录"
+msgstr "{n} entries · {d} active days"
+
+msgid "悬停查看 · 点击跳转 · 颜色越深当日篇数越多"
+msgstr "Hover to view · Click to filter · Darker = more entries"
+
 #: views/delegates/tag_delegate.py
 msgid "无标签"
 msgstr "No Tags"
