@@ -5,7 +5,7 @@
 - get_diary_date_range
 - get_diary_counts_by_date_range
 
-以及 views/components/heatmap_panel.py 中：
+以及 views/components/heatmap/calendar_widget.py 中：
 - 单月 sizeHint 不变量
 - 自适应 stride 上限
 - 点击幂等性
@@ -172,7 +172,7 @@ class TestHeatmapWidgetSizeHint:
     """回归测试：热力图 sizeHint 高度与宽度必须能容纳当月（4-6 行 × 7 列）"""
 
     def _make_widget(self, counts, year, month, qapp, adaptive=False):
-        from views.components.heatmap_panel import HeatmapCalendarWidget
+        from views.components.heatmap import HeatmapCalendarWidget
         w = HeatmapCalendarWidget()
         w.set_adaptive_size(adaptive)
         w.set_data(counts)
@@ -228,7 +228,7 @@ class TestHeatmapAdaptiveSize:
     """自适应尺寸测试：set_adaptive_size(True) 后 cell 随宽度变化"""
 
     def _make_widget(self, counts, year, month, qapp, adaptive=True):
-        from views.components.heatmap_panel import HeatmapCalendarWidget
+        from views.components.heatmap import HeatmapCalendarWidget
         w = HeatmapCalendarWidget()
         w.set_adaptive_size(adaptive)
         w.set_data(counts)
@@ -257,14 +257,14 @@ class TestHeatmapAdaptiveSize:
 
     def test_click_uses_instance_stride_not_class_constant(self, qapp):
         """回归测试：_cell_from_pos 必须用 self._stride，不能用 STRIDE 类常量"""
-        from views.components.heatmap_panel import _snap_to_monday
+        from views.components.heatmap import snap_to_monday
 
         w = self._make_widget(
             {'2026-08-15': 1, '2026-08-20': 2},
             2026, 8, qapp, adaptive=True,
         )
         # Mon-first：grid_start = Jul 27（Aug 1 周一前最近的一天）
-        gs = _snap_to_monday(QDate(2026, 8, 1))
+        gs = snap_to_monday(QDate(2026, 8, 1))
         target = QDate(2026, 8, 15)
         diff = gs.daysTo(target)
         row, col = diff // 7, diff % 7  # row=周序号，col=星期（0=Mon..6=Sun）
@@ -281,10 +281,10 @@ class TestHeatmapAdaptiveSize:
         """同一格反复点击必须每次都返回同一日期（信号不丢、不偏移）"""
         from PyQt6.QtCore import QEvent, QPointF, Qt
         from PyQt6.QtGui import QMouseEvent
-        from views.components.heatmap_panel import _snap_to_monday
+        from views.components.heatmap import snap_to_monday
 
         captured = []
-        from views.components.heatmap_panel import HeatmapPanelFactory
+        from views.components.heatmap import HeatmapPanelFactory
         panel = HeatmapPanelFactory.create_heatmap_panel(
             None, on_date_clicked=captured.append,
         )
@@ -296,7 +296,7 @@ class TestHeatmapAdaptiveSize:
         w.set_current_month(2026, 8)
         qapp.processEvents()
 
-        gs = _snap_to_monday(QDate.fromString('2026-08-01', 'yyyy-MM-dd'))
+        gs = snap_to_monday(QDate.fromString('2026-08-01', 'yyyy-MM-dd'))
         target = QDate.fromString('2026-08-15', 'yyyy-MM-dd')
         diff = gs.daysTo(target)
         row, col = diff // 7, diff % 7
@@ -326,7 +326,7 @@ class TestHeatmapMonthNavigation:
 
     def test_set_current_month_changes_weeks(self, qapp):
         """不同月份 _weeks 应不同（4-5-6 都有可能）"""
-        from views.components.heatmap_panel import HeatmapCalendarWidget
+        from views.components.heatmap import HeatmapCalendarWidget
         w = HeatmapCalendarWidget()
         w.set_data({})
         w.set_current_month(2027, 2)  # 4 周（Feb 1 Mon - Feb 28 Sun 紧贴）
@@ -336,7 +336,7 @@ class TestHeatmapMonthNavigation:
 
     def test_current_month_roundtrip(self, qapp):
         """set_current_month 后 current_month() 应能读回"""
-        from views.components.heatmap_panel import HeatmapCalendarWidget
+        from views.components.heatmap import HeatmapCalendarWidget
         w = HeatmapCalendarWidget()
         w.set_data({})
         w.set_current_month(2025, 7)
@@ -346,7 +346,7 @@ class TestHeatmapMonthNavigation:
 
     def test_prev_button_fires_callback_with_previous_month(self, qapp):
         """点 ‹ 按钮：on_month_changed 回调收到上一月"""
-        from views.components.heatmap_panel import HeatmapPanelFactory
+        from views.components.heatmap import HeatmapPanelFactory
         captured = []
         panel = HeatmapPanelFactory.create_heatmap_panel(
             None, on_month_changed=lambda y, m: captured.append((y, m)),
@@ -363,7 +363,7 @@ class TestHeatmapMonthNavigation:
 
     def test_next_button_fires_callback_with_next_month(self, qapp):
         """点 › 按钮：on_month_changed 回调收到下一月（跨年）"""
-        from views.components.heatmap_panel import HeatmapPanelFactory
+        from views.components.heatmap import HeatmapPanelFactory
         captured = []
         panel = HeatmapPanelFactory.create_heatmap_panel(
             None, on_month_changed=lambda y, m: captured.append((y, m)),
@@ -380,7 +380,7 @@ class TestHeatmapMonthNavigation:
 
     def test_today_button_jumps_to_current_month(self, qapp):
         """点 [今天]：跳到系统当前月"""
-        from views.components.heatmap_panel import HeatmapPanelFactory
+        from views.components.heatmap import HeatmapPanelFactory
         captured = []
         panel = HeatmapPanelFactory.create_heatmap_panel(
             None, on_month_changed=lambda y, m: captured.append((y, m)),
@@ -402,7 +402,7 @@ class TestHeatmapMonthNavigation:
 
     def test_today_button_disabled_when_already_on_today(self, qapp):
         """已在当月时，今天按钮应被禁用（避免无意义回调）"""
-        from views.components.heatmap_panel import HeatmapPanelFactory
+        from views.components.heatmap import HeatmapPanelFactory
         panel = HeatmapPanelFactory.create_heatmap_panel(None)
         panel.show()
         qapp.processEvents()
@@ -415,7 +415,7 @@ class TestHeatmapMonthNavigation:
 
     def test_today_button_enabled_on_other_months(self, qapp):
         """不在当月时，今天按钮应可用"""
-        from views.components.heatmap_panel import HeatmapPanelFactory
+        from views.components.heatmap import HeatmapPanelFactory
         panel = HeatmapPanelFactory.create_heatmap_panel(None)
         panel.show()
         qapp.processEvents()
@@ -429,7 +429,7 @@ class TestHeatmapMonthNavigation:
 
     def test_panel_exposes_set_month_helper(self, qapp):
         """panel.set_month 外部入口可正常工作"""
-        from views.components.heatmap_panel import HeatmapPanelFactory
+        from views.components.heatmap import HeatmapPanelFactory
         panel = HeatmapPanelFactory.create_heatmap_panel(None)
         panel.set_month(2025, 3)
         m = panel._heatmap.current_month()
@@ -441,7 +441,7 @@ class TestHeatmapFactoryStructure:
 
     def test_factory_creates_nav_buttons(self, qapp):
         """工厂应创建 prev/next/today 三个按钮"""
-        from views.components.heatmap_panel import HeatmapPanelFactory
+        from views.components.heatmap import HeatmapPanelFactory
         panel = HeatmapPanelFactory.create_heatmap_panel(None)
         assert hasattr(panel, '_btn_prev')
         assert hasattr(panel, '_btn_next')
@@ -449,13 +449,13 @@ class TestHeatmapFactoryStructure:
 
     def test_factory_creates_month_label(self, qapp):
         """工厂应创建月份标签"""
-        from views.components.heatmap_panel import HeatmapPanelFactory
+        from views.components.heatmap import HeatmapPanelFactory
         panel = HeatmapPanelFactory.create_heatmap_panel(None)
         assert hasattr(panel, '_month_label')
 
     def test_factory_wraps_heatmap_in_scroll_area(self, qapp):
         """工厂用 QScrollArea 包热力图（即使单月通常不需要滚动）"""
-        from views.components.heatmap_panel import HeatmapPanelFactory
+        from views.components.heatmap import HeatmapPanelFactory
         panel = HeatmapPanelFactory.create_heatmap_panel(None)
         assert hasattr(panel, '_scroll')
         # 默认开启自适应

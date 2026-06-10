@@ -24,7 +24,7 @@ from utils.formatters import format_tags_html
 from views.components.toolbar import MainToolBar
 from views.components.menu_bar import MainMenuBar
 from views.components.calendar_panel import CalendarPanelFactory
-from views.components.heatmap_panel import HeatmapPanelFactory
+from views.components.heatmap import HeatmapPanelFactory
 from views.components.detail_panel import DetailPanel
 from views.components.status_bar_manager import StatusBarManager
 from views.components.table_view_manager import TableViewManager
