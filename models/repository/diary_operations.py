@@ -30,8 +30,9 @@ class DiaryOperationsMixin:
         date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         stripped = content.strip()
         tokens = self.compute_tokens(stripped)
-        query = "INSERT INTO diaries (date, content, tokens) VALUES (?, ?, ?)"
-        diary_id = self._execute(query, (date, stripped, tokens))
+        # updated_at 初值与 date 相同（创建即"最新"），后续编辑才推进
+        query = "INSERT INTO diaries (date, content, tokens, updated_at) VALUES (?, ?, ?, ?)"
+        diary_id = self._execute(query, (date, stripped, tokens, date))
 
         if diary_id:
             logger.info(f"新增日记成功，ID: {diary_id}")
@@ -53,7 +54,9 @@ class DiaryOperationsMixin:
 
     def update_diary(self, diary_id: int, new_content: str) -> bool:
         """
-        更新日记内容
+        更新日记内容（仅修改 content / tokens / updated_at，不动 date）
+
+        date 是"创建时间"语义，写入后永不变；updated_at 记录"最近编辑时间"。
 
         Args:
             diary_id: 日记ID
@@ -66,12 +69,13 @@ class DiaryOperationsMixin:
             logger.warning("尝试更新为空内容")
             return False
 
-        date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         stripped = new_content.strip()
         tokens = self.compute_tokens(stripped)
+        # 关键：date 不在 SET 列表中；只推进 updated_at
         rowcount = self._execute(
-            "UPDATE diaries SET content = ?, date = ?, tokens = ? WHERE id = ?",
-            (stripped, date, tokens, diary_id),
+            "UPDATE diaries SET content = ?, tokens = ?, updated_at = ? WHERE id = ?",
+            (stripped, tokens, now, diary_id),
             fetch='rowcount'
         )
 

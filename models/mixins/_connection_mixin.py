@@ -3,6 +3,7 @@
 提供线程本地的数据库连接、事务管理和SQL执行功能
 """
 from contextlib import contextmanager
+import queue
 import sqlite3
 import threading
 import logging
@@ -20,7 +21,7 @@ class ConnectionMixin:
 
     提供：
     - 读写分离连接池（_init_pool, _close_pool）
-    - 读连接获取/归还（_acquire_read_connection, _release_read_connection）
+    - 读连接借/还（_acquire_read_connection；基于 queue.Queue 借/还语义）
     - 事务上下文管理器（_transaction）
     - 通用SQL执行方法（_execute）
     """
@@ -49,16 +50,21 @@ class ConnectionMixin:
 
         Args:
             pool_size: 读连接池大小，默认3
+
+        设计要点：
+        - 读池改为 queue.Queue，借/还语义清晰（get/put）
+        - 每个连接有独立 Lock，但只在 cursor.execute 周围短暂持锁（见 _acquire_read_connection）
+        - 写连接仍为单条，由 _db_lock 全局串行化
         """
-        self._read_pool: List[tuple] = []  # (connection, lock) 列表
-        self._write_conn: Optional[sqlite3.Connection] = None
         self._pool_size = pool_size
+        # queue.Queue 提供原子 get/put；maxsize 与池大小一致即可
+        self._read_pool: "queue.Queue[Tuple[sqlite3.Connection, threading.Lock]]" = queue.Queue(maxsize=pool_size)
 
         # 预创建读连接池
         for _ in range(pool_size):
             conn = self._create_connection()
             lock = threading.Lock()
-            self._read_pool.append((conn, lock))
+            self._read_pool.put((conn, lock))
 
         # 创建写连接
         self._write_conn = self._create_connection()
@@ -78,13 +84,16 @@ class ConnectionMixin:
 
     def _close_pool(self):
         """关闭所有连接"""
-        # 关闭读连接池
-        for conn, _ in self._read_pool:
+        # 排空读连接池
+        while True:
+            try:
+                conn, _lock = self._read_pool.get_nowait()
+            except queue.Empty:
+                break
             try:
                 conn.close()
             except Exception as e:
                 logger.warning(f"关闭读连接失败: {e}")
-        self._read_pool.clear()
 
         # 关闭写连接
         if self._write_conn:
@@ -105,26 +114,54 @@ class ConnectionMixin:
         """
         从池中获取一个读连接的上下文管理器
 
-        Usage:
+        语义：借/还（不再轮转）。由 queue.Queue 保证并发安全。
+
+        用法：
             with self._acquire_read_connection() as (conn, lock):
                 cursor = conn.cursor()
-                cursor.execute(...)
+                with lock:                # 只在 execute 周围持锁
+                    cursor.execute(...)
+
+        异常路径：
+        - 任意异常时仍通过 finally 把连接 put 回池
+        - 若异常发生在 cursor.execute 阶段，连接被污染，
+          会替换为新连接再 put 回池（连接自愈）
         """
-        if not self._read_pool:
-            raise RuntimeError("连接池未初始化")
+        try:
+            conn, lock = self._read_pool.get(timeout=10.0)
+        except queue.Empty as exc:
+            raise RuntimeError("读连接池无可用连接（10s 超时）") from exc
 
-        # 获取一个可用连接（轮询选择）
-        conn, lock = self._read_pool[0]
-        # 简单轮询策略：每次从池首部取，用完后移到末尾
-        self._read_pool = self._read_pool[1:] + [(conn, lock)]
-
-        acquired = False
         try:
             yield conn, lock
-            acquired = True
+        except sqlite3.Error:
+            # 连接可能已被污染：回滚 + 替换为新连接
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            try:
+                conn.close()
+            except Exception:
+                pass
+            try:
+                new_conn = self._create_connection()
+                self._read_pool.put((new_conn, threading.Lock()))
+            except Exception as heal_exc:
+                logger.error(f"读连接自愈失败: {heal_exc}")
+            raise
         finally:
-            # 如果异常发生在 yield 之前，连接已在上面；异常后连接已归还
-            pass
+            # 无论正常或异常归还，避免连接泄露
+            # 注意：异常分支已 put(new_conn)，正常路径 put 原 conn
+            # 池大小由 maxsize 保证；get 后 put 是 1:1
+            try:
+                self._read_pool.put_nowait((conn, lock))
+            except queue.Full:
+                # 池已满（理论上不会发生，除非有外部 put），关闭多余连接
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def _get_write_connection(self) -> sqlite3.Connection:
         """获取写连接（内部使用，不对外暴露）"""

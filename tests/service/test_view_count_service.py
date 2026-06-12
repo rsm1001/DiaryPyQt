@@ -2,6 +2,7 @@
 查看次数服务单元测试
 测试 services/view_count_service.py 中的 ViewCountService 类
 """
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -20,52 +21,74 @@ class TestViewCountService:
     # =========================================================================
     # increment_view_count 测试
     # =========================================================================
+    #
+    # 新实现把 view_log / view_count / all_time_max 压到同一 _transaction 内
+    # 因此 mock 的是 cursor.execute 的副作用，而不是 db_manager._execute
+
+    @staticmethod
+    def _make_mock_cursor(side_effects):
+        """构造一个 mock cursor，cursor.execute 依次返回 side_effects 里的值"""
+        cursor = MagicMock()
+        cursor.fetchone = MagicMock(side_effect=side_effects)
+        cursor.execute = MagicMock()
+        return cursor
 
     def test_increment_view_count_returns_new_count(self, service, mock_db_manager):
         """返回值应为新的查看次数"""
-        mock_db_manager._execute.side_effect = [
-            1,  # INSERT view_log
-            {'count': 5},  # today count
-            {'value': 3},  # current max
-            1,  # INSERT OR REPLACE (today_count > current_max)
-            {'view_count': 6},  # UPDATE RETURNING
-        ]
+        # fetchone 顺序: (1) UPDATE RETURNING, (2) SELECT COUNT today, (3) SELECT value max
+        cursor = self._make_mock_cursor([
+            {'view_count': 6},  # UPDATE ... RETURNING
+            {'count': 5},       # SELECT COUNT(*) today
+            {'value': 3},       # SELECT value FROM app_config
+        ])
+
+        @contextmanager
+        def fake_transaction():
+            yield cursor
+        mock_db_manager._transaction = fake_transaction
 
         result = service.increment_view_count(1)
-
         assert result == 6
 
     def test_increment_view_count_updates_max_if_exceeded(self, service, mock_db_manager):
         """当日查看数超过历史最佳时应更新"""
-        mock_db_manager._execute.side_effect = [
-            1,  # INSERT view_log
-            {'count': 10},  # today count > current max (3)
-            {'value': 3},  # current max
-            1,  # INSERT OR REPLACE
-            {'view_count': 6},  # UPDATE RETURNING
-        ]
+        # 5 > 3 -> 触发 app_config 更新
+        cursor = self._make_mock_cursor([
+            {'view_count': 6},
+            {'count': 10},
+            {'value': 3},
+        ])
+
+        @contextmanager
+        def fake_transaction():
+            yield cursor
+        mock_db_manager._transaction = fake_transaction
 
         service.increment_view_count(1)
 
-        # 验证更新了历史最佳
-        calls = mock_db_manager._execute.call_args_list
-        # INSERT OR REPLACE into app_config should be called
-        assert any('app_config' in str(call) for call in calls)
+        executed_sql = [str(c) for c in cursor.execute.call_args_list]
+        assert any('app_config' in s for s in executed_sql), \
+            f"应当执行 app_config 更新，实际调用：{executed_sql}"
 
     def test_increment_view_count_does_not_update_max_if_not_exceeded(self, service, mock_db_manager):
         """当日查看数未超过历史最佳时不应更新"""
-        mock_db_manager._execute.side_effect = [
-            1,  # INSERT view_log
-            {'count': 2},  # today count < current max (3)
-            {'value': 3},  # current max
-            # No INSERT OR REPLACE call since 2 <= 3
-            {'view_count': 6},  # UPDATE RETURNING
-        ]
+        # 2 <= 3 -> 不应执行 INSERT OR REPLACE
+        cursor = self._make_mock_cursor([
+            {'view_count': 6},
+            {'count': 2},
+            {'value': 3},
+        ])
+
+        @contextmanager
+        def fake_transaction():
+            yield cursor
+        mock_db_manager._transaction = fake_transaction
 
         service.increment_view_count(1)
 
-        # 只应调用4次_execute
-        assert mock_db_manager._execute.call_count == 4
+        executed_sql = [str(c) for c in cursor.execute.call_args_list]
+        assert not any('INSERT OR REPLACE' in s for s in executed_sql), \
+            f"不应更新 app_config，实际调用：{executed_sql}"
 
     # =========================================================================
     # decrease_view_count 测试

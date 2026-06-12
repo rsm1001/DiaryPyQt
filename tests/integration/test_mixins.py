@@ -37,7 +37,10 @@ class TestConnectionMixin:
         """测试从连接池获取读连接"""
         with temp_db_manager._acquire_read_connection() as (conn, lock):
             assert isinstance(conn, sqlite3.Connection)
-            assert isinstance(lock, type(temp_db_manager._read_pool[0][1]))
+            # Queue 无下标访问；从池中取一条样本验证 lock 类型
+            sample_conn, sample_lock = temp_db_manager._read_pool.get_nowait()
+            temp_db_manager._read_pool.put_nowait((sample_conn, sample_lock))
+            assert isinstance(lock, type(sample_lock))
 
     def test_execute_insert_and_select(self, temp_db_manager):
         """测试基本的INSERT和SELECT操作"""
@@ -320,20 +323,27 @@ class TestDiaryOperationsMixin:
         assert result['view_count'] == 0
 
     def test_update_diary(self, temp_db_manager):
-        """测试更新日记"""
+        """测试更新日记：date 永不变，updated_at 推进"""
         # 创建日记
         diary_id = temp_db_manager._execute(
             "INSERT INTO diaries (date, content, view_count) VALUES (?, ?, ?)",
             ('2026-05-21 10:00:00', '原始内容', 0)
         )
 
+        original = temp_db_manager.get_diary_by_id(diary_id)
+        original_date = original['date']
+
         # 更新
         success = temp_db_manager.update_diary(diary_id, new_content='更新内容')
         assert success is True
 
-        # 验证
+        # 验证：date 不变，content 变，updated_at 改变
         updated = temp_db_manager.get_diary_by_id(diary_id)
         assert updated['content'] == '更新内容'
+        assert updated['date'] == original_date, \
+            "date 是创建时间，update_diary 不得覆盖"
+        # updated_at 可能等于 date（同步时钟的极端情况），但必须存在
+        assert updated['updated_at'] is not None
 
     def test_delete_diary(self, temp_db_manager):
         """测试删除日记"""

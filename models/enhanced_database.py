@@ -76,12 +76,12 @@ class EnhancedDatabaseManager(
         # 初始化读写分离连接池
         self._init_pool()
 
-        # 服务占位（延迟初始化）
+        # 服务占位（公开名：调用方用 self.diary_content_service / self.view_count_service 等）
         self._services_initialized = False
-        self._migration_backup_manager = None
-        self._statistics_service = None
-        self._view_count_service = None
-        self._diary_content_service = None
+        self.migration_backup_manager = None
+        self.statistics_service = None
+        self.view_count_service = None
+        self.diary_content_service = None
 
         # 确保目录存在
         self._ensure_directory()
@@ -92,6 +92,19 @@ class EnhancedDatabaseManager(
         # 初始化垃圾桶数据库
         self._init_trash_database()
 
+        # 启动恢复：扫描两库 pending_trash_ops，推进到稳定态
+        # 必须在 __init_services 之前；recovery 不依赖服务
+        try:
+            recovered = self._recover_pending_trash_ops()
+            if recovered:
+                logger.info(f"启动恢复：处理 {recovered} 个未完成的跨库操作")
+        except Exception as exc:
+            logger.error(f"启动恢复失败（已忽略，不影响本次启动）: {exc}")
+
+        # 显式初始化各服务（不再依赖 __getattr__ 兜底）
+        # 这样 hasattr / 调试 / IDE 补全都不会再有副作用
+        self._init_services()
+
         logger.info(f"EnhancedDatabaseManager 初始化完成，数据库路径: {os.path.abspath(self.db_path)}")
 
     def _ensure_directory(self):
@@ -101,32 +114,37 @@ class EnhancedDatabaseManager(
             os.makedirs(db_dir, exist_ok=True)
 
     def _init_services(self):
-        """初始化各服务实例"""
-        if self._services_initialized:
-            return
-        StatisticsService, ViewCountService, DiaryContentService = _import_services_lazily()
+        """
+        初始化各服务实例（线程安全，只跑一次）
 
-        self._migration_backup_manager = MigrationBackupManager(self)
-        self._statistics_service = StatisticsService(self)
-        self._view_count_service = ViewCountService(self)
-        self._diary_content_service = DiaryContentService(self)
-        self._services_initialized = True
+        - 由 __init__ 末尾显式调用；不依赖 __getattr__ 兜底
+        - 用 _db_lock 串行化防止多线程并发 __init__ 时重复创建服务实例
+        """
+        with self._db_lock:
+            if self._services_initialized:
+                return
+            StatisticsService, ViewCountService, DiaryContentService = _import_services_lazily()
+
+            self.migration_backup_manager = MigrationBackupManager(self)
+            self.statistics_service = StatisticsService(self)
+            self.view_count_service = ViewCountService(self)
+            self.diary_content_service = DiaryContentService(self)
+            self._services_initialized = True
 
     def __getattr__(self, name):
-        """延迟初始化服务属性"""
-        if name == 'migration_backup_manager':
-            self._init_services()
-            return self._migration_backup_manager
-        if name == 'statistics_service':
-            self._init_services()
-            return self._statistics_service
-        if name == 'view_count_service':
-            self._init_services()
-            return self._view_count_service
-        if name == 'diary_content_service':
-            self._init_services()
-            return self._diary_content_service
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        """
+        显式属性兜底：未知属性直接抛 AttributeError，不再触发 _init_services。
+
+        旧实现会在 hasattr / 调试 / 自动补全时副作用式地初始化服务，带来：
+        (1) hasattr 出现副作用
+        (2) 调试期 __getattr__ 栈掩盖真实异常
+        (3) _init_services 缺锁保护，并发下可能重复创建服务实例
+        现在服务在 __init__ 末尾显式完成初始化，所有服务字段都是真实属性。
+        """
+        raise AttributeError(
+            f"{type(self).__name__!r} object has no attribute {name!r} "
+            f"(services are initialized explicitly in __init__)"
+        )
 
     # -------------------------------------------------------------------------
     # 数据库Schema初始化
@@ -147,6 +165,8 @@ class EnhancedDatabaseManager(
             logger.warning("当前 SQLite 构建未启用 FTS5，搜索将自动降级为 LIKE 模式")
 
         # ---- 日记主表 ----
+        # date  = 创建时间（写入后永不变；update_diary 不得覆盖）
+        # updated_at = 最近一次内容编辑时间（NULL 表示从未被编辑，仍等于 date）
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS diaries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,7 +174,8 @@ class EnhancedDatabaseManager(
                 content TEXT NOT NULL,
                 view_count INTEGER DEFAULT 0,
                 last_viewed_at TEXT,
-                tokens TEXT
+                tokens TEXT,
+                updated_at TEXT
             )
         ''')
 
@@ -170,6 +191,18 @@ class EnhancedDatabaseManager(
         except Exception:
             pass  # 列已存在
 
+        # 为已有表添加 updated_at 列（兼容旧数据库；区分"何时写下"与"何时改了它"）
+        try:
+            cursor.execute('ALTER TABLE diaries ADD COLUMN updated_at TEXT')
+        except Exception:
+            pass  # 列已存在
+
+        # 回填旧库：updated_at 默认等于 date（语义上"创建即最新"）
+        cursor.execute(
+            'UPDATE diaries SET updated_at = date '
+            'WHERE updated_at IS NULL OR updated_at = ""'
+        )
+
         # ---- 标签表 ----
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tags (
@@ -178,6 +211,29 @@ class EnhancedDatabaseManager(
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        # ---- 2PC 跨库协调：pending_trash_ops（主库侧）----
+        # 配合垃圾桶库的 pending_trash_ops 一起做两阶段提交
+        # op_id: 全局唯一 UUID（在 2PC 入口处生成）
+        # op_type: 'move' / 'restore'
+        # state: 'pending' -> 'applied' -> 'committed'
+        # payload: JSON 序列化的"真实写"所需的所有参数
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pending_trash_ops (
+                op_id TEXT PRIMARY KEY,
+                op_type TEXT NOT NULL,
+                diary_id INTEGER,
+                trash_id INTEGER,
+                payload TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT '',
+                updated_at TEXT
+            )
+        ''')
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_pending_trash_state '
+            'ON pending_trash_ops(state)'
+        )
 
         # ---- 日记-标签关联表 ----
         cursor.execute('''
@@ -245,6 +301,8 @@ class EnhancedDatabaseManager(
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_viewed_at ON view_log(viewed_at)')
         cursor.execute('DROP INDEX IF EXISTS idx_view_log_diary_id')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_diary_id ON view_log(diary_id)')
+        # updated_at 索引：支持"今日改过""最近编辑"等查询
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_updated_at ON diaries(updated_at)')
 
         # ---- FTS5 全文搜索表 ----
         # 3 列：原 content（兼容 unicode61 短语）+ 预分词 tokens（覆盖 CJK / 日韩 / 扩展汉字）
