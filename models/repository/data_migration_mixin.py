@@ -48,13 +48,15 @@ class DataMigrationMixin:
             with self._transaction() as cursor:
                 for diary in json_data:
                     try:
+                        content = diary.get('content') or ''
+                        tokens = self.compute_tokens(content)
                         cursor.execute(
                             """
-                            INSERT OR IGNORE INTO diaries (id, date, content, view_count) 
-                            VALUES (?, ?, ?, ?)
+                            INSERT OR IGNORE INTO diaries (id, date, content, view_count, tokens)
+                            VALUES (?, ?, ?, ?, ?)
                             """,
-                            (diary.get('id'), diary.get('date'), 
-                             diary.get('content'), diary.get('view_count', 0))
+                            (diary.get('id'), diary.get('date'),
+                             content, diary.get('view_count', 0), tokens)
                         )
                         if cursor.rowcount > 0:
                             count += 1
@@ -117,15 +119,18 @@ class DataMigrationMixin:
                 with self._transaction() as cursor:
                     for row in reader:
                         try:
+                            content = row.get('content', '')
+                            tokens = self.compute_tokens(content)
                             cursor.execute(
                                 """
-                                INSERT OR IGNORE INTO diaries (date, content, view_count) 
-                                VALUES (?, ?, ?)
+                                INSERT OR IGNORE INTO diaries (date, content, view_count, tokens)
+                                VALUES (?, ?, ?, ?)
                                 """,
                                 (
                                     row.get('date', ''),
-                                    row.get('content', ''),
-                                    int(row.get('view_count', 0) or 0)
+                                    content,
+                                    int(row.get('view_count', 0) or 0),
+                                    tokens
                                 )
                             )
                             if cursor.rowcount > 0:

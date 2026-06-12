@@ -55,6 +55,11 @@ class TrashMixin:
         conn = self._get_trash_connection()
         cursor = conn.cursor()
 
+        # FTS5 自检：未启用则跳过 FTS5 同步（搜索降级 LIKE）
+        self._trash_fts5_available = self._probe_trash_fts5(cursor)
+        if not self._trash_fts5_available:
+            logger.warning("垃圾桶数据库未启用 FTS5，搜索将降级 LIKE")
+
         # 创建垃圾桶日记表
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS trash_diaries (
@@ -65,9 +70,16 @@ class TrashMixin:
                 content TEXT NOT NULL,
                 view_count INTEGER DEFAULT 0,
                 last_viewed_at TEXT,
-                source_db_path TEXT
+                source_db_path TEXT,
+                tokens TEXT
             )
         ''')
+
+        # 兼容旧库：补 tokens 列
+        try:
+            cursor.execute('ALTER TABLE trash_diaries ADD COLUMN tokens TEXT')
+        except Exception:
+            pass  # 列已存在
 
         # 创建垃圾桶标签表
         cursor.execute('''
@@ -91,6 +103,48 @@ class TrashMixin:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_trash_content ON trash_diaries(content)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_trash_original_id ON trash_diaries(original_id)')
 
+        # ---- FTS5（多语种）----
+        if self._trash_fts5_available:
+            cursor.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS trash_diary_fts USING fts5(
+                    content,
+                    tokens,
+                    content='trash_diaries',
+                    content_rowid='id',
+                    tokenize='unicode61 remove_diacritics 2 categories ''L* N* Co'''
+                )
+            """)
+            # 灌入已有数据
+            cursor.execute(
+                "INSERT OR REPLACE INTO trash_diary_fts(rowid, content, tokens) "
+                "SELECT id, content, COALESCE(tokens, '') FROM trash_diaries"
+            )
+            # 回填缺失 tokens
+            cursor.execute("SELECT id, content FROM trash_diaries WHERE tokens IS NULL OR tokens = ''")
+            rows = cursor.fetchall()
+            if rows:
+                from utils.text_tokenizer import tokenize
+                for row in rows:
+                    tokens_str = ' '.join(tokenize(row['content'] or ''))
+                    cursor.execute("UPDATE trash_diaries SET tokens = ? WHERE id = ?", (tokens_str, row['id']))
+            # 触发器
+            cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS trash_fts_insert AFTER INSERT ON trash_diaries BEGIN
+                    INSERT INTO trash_diary_fts(rowid, content, tokens) VALUES (new.id, new.content, COALESCE(new.tokens, ''));
+                END
+            ''')
+            cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS trash_fts_update AFTER UPDATE ON trash_diaries BEGIN
+                    INSERT INTO trash_diary_fts(trash_diary_fts, rowid, content, tokens) VALUES ('delete', old.id, old.content, COALESCE(old.tokens, ''));
+                    INSERT INTO trash_diary_fts(rowid, content, tokens) VALUES (new.id, new.content, COALESCE(new.tokens, ''));
+                END
+            ''')
+            cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS trash_fts_delete AFTER DELETE ON trash_diaries BEGIN
+                    INSERT INTO trash_diary_fts(trash_diary_fts, rowid, content, tokens) VALUES ('delete', old.id, old.content, COALESCE(old.tokens, ''));
+                END
+            ''')
+
         # 启用WAL模式
         cursor.execute('PRAGMA journal_mode=WAL')
         cursor.execute('PRAGMA synchronous=NORMAL')
@@ -99,6 +153,23 @@ class TrashMixin:
 
         conn.commit()
         logger.info("垃圾桶数据库初始化完成")
+
+    def _probe_trash_fts5(self, cursor) -> bool:
+        """自检 FTS5 是否在当前 SQLite 构建中可用"""
+        try:
+            cursor.execute("CREATE VIRTUAL TABLE _trash_fts5_probe USING fts5(x)")
+            cursor.execute("DROP TABLE _trash_fts5_probe")
+            return True
+        except Exception as exc:
+            logger.debug("垃圾桶 FTS5 自检失败: %s", exc)
+            return False
+
+    def compute_trash_tokens(self, content: str) -> str:
+        """对垃圾桶的日记内容算预分词串（FTS5 不可用时返回空）"""
+        if not content or not getattr(self, '_trash_fts5_available', False):
+            return ''
+        from utils.text_tokenizer import tokenize
+        return ' '.join(tokenize(content))
 
     @contextmanager
     def _trash_transaction(self):
@@ -173,12 +244,13 @@ class TrashMixin:
         try:
             # 在垃圾桶数据库中插入
             deleted_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            tokens = self.compute_trash_tokens(diary['content'])
             trash_cursor = trash_conn.cursor()
             trash_cursor.execute(
                 """
                 INSERT INTO trash_diaries
-                (original_id, date, deleted_at, content, view_count, last_viewed_at, source_db_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (original_id, date, deleted_at, content, view_count, last_viewed_at, source_db_path, tokens)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     diary['id'],
@@ -187,7 +259,8 @@ class TrashMixin:
                     diary['content'],
                     diary.get('view_count', 0),
                     diary.get('last_viewed_at'),
-                    os.path.abspath(self.db_path)
+                    os.path.abspath(self.db_path),
+                    tokens
                 )
             )
             trash_diary_id = trash_cursor.lastrowid
@@ -258,16 +331,18 @@ class TrashMixin:
             trash_cursor = trash_conn.cursor()
 
             # 恢复到原数据库（使用新的自增ID）
+            tokens = self.compute_tokens(trash_diary['content'])
             main_cursor.execute(
                 """
-                INSERT INTO diaries (date, content, view_count, last_viewed_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO diaries (date, content, view_count, last_viewed_at, tokens)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     trash_diary['date'],
                     trash_diary['content'],
                     trash_diary['view_count'],
-                    trash_diary['last_viewed_at']
+                    trash_diary['last_viewed_at'],
+                    tokens
                 )
             )
             restored_diary_id = main_cursor.lastrowid
@@ -364,7 +439,7 @@ class TrashMixin:
 
     def search_trash_by_keyword(self, keyword: str, limit: int = 100) -> List[Dict[str, Any]]:
         """
-        在垃圾桶中搜索日记
+        在垃圾桶中搜索日记（多语种分词 + FTS5 + LIKE 回退）
 
         Args:
             keyword: 搜索关键词
@@ -376,17 +451,51 @@ class TrashMixin:
         if not keyword or not keyword.strip():
             return self.get_all_trash_diaries(limit)
 
+        from utils.text_tokenizer import build_fts_match, like_or_pattern
+
+        fts_keyword = keyword.strip()
+        match_expr, _ = build_fts_match(fts_keyword)
+        if not match_expr:
+            return []
+
+        if getattr(self, '_trash_fts5_available', False):
+            try:
+                results = self._trash_execute(
+                    """
+                    SELECT td.*, GROUP_CONCAT(tt.name, ', ') as tag_names
+                    FROM trash_diaries td
+                    INNER JOIN trash_diary_fts fts ON td.id = fts.rowid
+                    LEFT JOIN trash_tags tt ON td.id = tt.trash_diary_id
+                    WHERE trash_diary_fts MATCH ?
+                    GROUP BY td.id
+                    ORDER BY td.deleted_at DESC
+                    LIMIT ?
+                    """,
+                    (match_expr, limit),
+                    fetch='all'
+                ) or []
+                if results:
+                    return results
+            except Exception as exc:
+                logger.warning("垃圾桶 FTS5 MATCH 失败，回退 LIKE: %s", exc)
+
+        # LIKE OR 兜底
+        patterns = like_or_pattern(fts_keyword)
+        if not patterns:
+            return []
+        conds = ' OR '.join('td.content LIKE ?' for _ in patterns)
+        params = tuple(patterns) + (limit,)
         return self._trash_execute(
-            """
+            f"""
             SELECT td.*, GROUP_CONCAT(tt.name, ', ') as tag_names
             FROM trash_diaries td
             LEFT JOIN trash_tags tt ON td.id = tt.trash_diary_id
-            WHERE td.content LIKE ?
+            WHERE {conds}
             GROUP BY td.id
             ORDER BY td.deleted_at DESC
             LIMIT ?
             """,
-            (f"%{keyword.strip()}%", limit),
+            params,
             fetch='all'
         ) or []
 

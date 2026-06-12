@@ -3,6 +3,7 @@
 包含迁移功能，负责初始化各服务模块
 """
 import os
+import sqlite3
 import threading
 import logging
 from typing import List, Dict, Optional, Any
@@ -140,6 +141,11 @@ class EnhancedDatabaseManager(
         conn = self._get_write_connection()
         cursor = conn.cursor()
 
+        # 自检 FTS5 是否可用（Python 3.8 内置 sqlite3 多数发行版已含；缺则降级 LIKE-only）
+        self._fts5_available = self._probe_fts5(cursor)
+        if not self._fts5_available:
+            logger.warning("当前 SQLite 构建未启用 FTS5，搜索将自动降级为 LIKE 模式")
+
         # ---- 日记主表 ----
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS diaries (
@@ -147,13 +153,20 @@ class EnhancedDatabaseManager(
                 date TEXT NOT NULL,
                 content TEXT NOT NULL,
                 view_count INTEGER DEFAULT 0,
-                last_viewed_at TEXT
+                last_viewed_at TEXT,
+                tokens TEXT
             )
         ''')
 
         # 为已有表添加 last_viewed_at 列（兼容旧数据库）
         try:
             cursor.execute('ALTER TABLE diaries ADD COLUMN last_viewed_at TEXT')
+        except Exception:
+            pass  # 列已存在
+
+        # 为已有表添加 tokens 列（兼容旧数据库；多语种分词的预分词结果）
+        try:
+            cursor.execute('ALTER TABLE diaries ADD COLUMN tokens TEXT')
         except Exception:
             pass  # 列已存在
 
@@ -234,37 +247,51 @@ class EnhancedDatabaseManager(
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_diary_id ON view_log(diary_id)')
 
         # ---- FTS5 全文搜索表 ----
-        cursor.execute('''
+        # 3 列：原 content（兼容 unicode61 短语）+ 预分词 tokens（覆盖 CJK / 日韩 / 扩展汉字）
+        # 应用层在写库前算好 tokens 串，写入 diaries.tokens；触发器镜像到 FTS5
+        # 外层用 """ 以便内层 tokenize 字符串可写 '' 转义形式
+        cursor.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS diaries_fts USING fts5(
                 content,
+                tokens,
                 content='diaries',
-                content_rowid='id'
+                content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2 categories ''L* N* Co'''
             )
-        ''')
+        """)
+
+        # 旧库迁移：若 FTS5 仍是单列（content）布局，删掉重建为 3 列
+        self._migrate_fts5_schema(cursor)
 
         # 初始化 FTS 表（将已有数据灌入，使用 REPLACE 确保已存在的行也被更新）
-        cursor.execute('INSERT OR REPLACE INTO diaries_fts(rowid, content) SELECT id, content FROM diaries')
+        cursor.execute(
+            "INSERT OR REPLACE INTO diaries_fts(rowid, content, tokens) "
+            "SELECT id, content, COALESCE(tokens, '') FROM diaries"
+        )
+
+        # 回填缺失的 tokens（兼容旧库：tokens 列为 NULL 的日记）
+        self._backfill_tokens(cursor)
 
         # ---- FTS5 同步触发器 ----
         # INSERT 触发器
         cursor.execute('''
             CREATE TRIGGER IF NOT EXISTS diaries_fts_insert AFTER INSERT ON diaries BEGIN
-                INSERT INTO diaries_fts(rowid, content) VALUES (new.id, new.content);
+                INSERT INTO diaries_fts(rowid, content, tokens) VALUES (new.id, new.content, COALESCE(new.tokens, ''));
             END
         ''')
 
         # UPDATE 触发器
         cursor.execute('''
             CREATE TRIGGER IF NOT EXISTS diaries_fts_update AFTER UPDATE ON diaries BEGIN
-                INSERT INTO diaries_fts(diaries_fts, rowid, content) VALUES ('delete', old.id, old.content);
-                INSERT INTO diaries_fts(rowid, content) VALUES (new.id, new.content);
+                INSERT INTO diaries_fts(diaries_fts, rowid, content, tokens) VALUES ('delete', old.id, old.content, COALESCE(old.tokens, ''));
+                INSERT INTO diaries_fts(rowid, content, tokens) VALUES (new.id, new.content, COALESCE(new.tokens, ''));
             END
         ''')
 
         # DELETE 触发器
         cursor.execute('''
             CREATE TRIGGER IF NOT EXISTS diaries_fts_delete AFTER DELETE ON diaries BEGIN
-                INSERT INTO diaries_fts(diaries_fts, rowid, content) VALUES ('delete', old.id, old.content);
+                INSERT INTO diaries_fts(diaries_fts, rowid, content, tokens) VALUES ('delete', old.id, old.content, COALESCE(old.tokens, ''));
             END
         ''')
 
@@ -277,6 +304,105 @@ class EnhancedDatabaseManager(
 
         conn.commit()
         logger.info("数据库初始化完成")
+
+    # -------------------------------------------------------------------------
+    # FTS5 多语种搜索支持
+    # -------------------------------------------------------------------------
+
+    def _probe_fts5(self, cursor) -> bool:
+        """
+        自检当前 SQLite 构建是否启用 FTS5。
+
+        通过 ``CREATE VIRTUAL TABLE t USING fts5(x)`` 试探；失败则降级 LIKE-only。
+        """
+        try:
+            cursor.execute("CREATE VIRTUAL TABLE _fts5_probe USING fts5(x)")
+            cursor.execute("DROP TABLE _fts5_probe")
+            return True
+        except Exception as exc:  # FTS5 未编译进 sqlite3 时抛 OperationalError
+            logger.debug("FTS5 自检失败: %s", exc)
+            return False
+
+    def _migrate_fts5_schema(self, cursor) -> None:
+        """
+        若 FTS5 仍是单列（content）布局，删掉重建为 3 列（content, tokens）。
+
+        SQLite 不支持 ALTER VIRTUAL TABLE，因此直接 DROP 后依赖后续 CREATE
+        （CREATE VIRTUAL TABLE IF NOT EXISTS 已经走过，这里走老路径清理）。
+        """
+        if not self._fts5_available:
+            return
+        try:
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='diaries_fts'")
+            row = cursor.fetchone()
+            if not row:
+                return
+            # 用 PRAGMA table_info 拿列数（contentless 表仍支持）
+            cursor.execute("PRAGMA table_info(diaries_fts)")
+            cols = cursor.fetchall()
+            # contentless FTS5 表 PRAGMA 拿不到列；用另一种方式：直接尝试三列 INSERT
+            cursor.execute("SELECT 1 FROM diaries_fts LIMIT 0")
+        except Exception:
+            return
+
+        # 探查是否已经支持 tokens 列：尝试一次三列写
+        try:
+            cursor.execute(
+                "INSERT INTO diaries_fts(rowid, content, tokens) VALUES (-1, '', '')"
+            )
+            cursor.execute("INSERT INTO diaries_fts(diaries_fts, rowid, content, tokens) VALUES ('delete', -1, '', '')")
+            return  # 三列已支持，无需迁移
+        except Exception:
+            pass  # 仍是旧 schema，需要重建
+
+        logger.info("检测到旧版 FTS5 schema（单列），开始迁移到 3 列布局")
+        # 删除旧 FTS5 表和旧触发器
+        cursor.execute("DROP TABLE IF EXISTS diaries_fts")
+        for trig in ("diaries_fts_insert", "diaries_fts_update", "diaries_fts_delete"):
+            cursor.execute(f"DROP TRIGGER IF EXISTS {trig}")
+        # 重新建（3 列）
+        cursor.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS diaries_fts USING fts5(
+                content,
+                tokens,
+                content='diaries',
+                content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2 categories ''L* N* Co'''
+            )
+        """)
+
+    def _backfill_tokens(self, cursor) -> None:
+        """回填 diaries.tokens（NULL 或空串的行）"""
+        from utils.text_tokenizer import tokenize
+        try:
+            cursor.execute("SELECT id, content FROM diaries WHERE tokens IS NULL OR tokens = ''")
+        except Exception:
+            return
+        rows = cursor.fetchall()
+        if not rows:
+            return
+        updated = 0
+        for row in rows:
+            diary_id = row['id'] if isinstance(row, sqlite3.Row) else row[0]
+            content = row['content'] if isinstance(row, sqlite3.Row) else row[1]
+            tokens_str = ' '.join(tokenize(content or ''))
+            cursor.execute("UPDATE diaries SET tokens = ? WHERE id = ?", (tokens_str, diary_id))
+            updated += 1
+        if updated:
+            logger.info("回填 tokens 完成，共 %d 条", updated)
+
+    def compute_tokens(self, content: str) -> str:
+        """
+        对外暴露：把内容算成 tokens 空格串（写库前用）。
+
+        - 无 FTS5 时返回空串（旧 LIKE 行为）
+        """
+        if not content:
+            return ''
+        if not getattr(self, '_fts5_available', True):
+            return ''
+        from utils.text_tokenizer import tokenize
+        return ' '.join(tokenize(content))
 
     # -------------------------------------------------------------------------
     # 公开API（代理到各服务）

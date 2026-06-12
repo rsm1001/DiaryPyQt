@@ -28,8 +28,10 @@ class DiaryOperationsMixin:
             return None
 
         date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        query = "INSERT INTO diaries (date, content) VALUES (?, ?)"
-        diary_id = self._execute(query, (date, content.strip()))
+        stripped = content.strip()
+        tokens = self.compute_tokens(stripped)
+        query = "INSERT INTO diaries (date, content, tokens) VALUES (?, ?, ?)"
+        diary_id = self._execute(query, (date, stripped, tokens))
 
         if diary_id:
             logger.info(f"新增日记成功，ID: {diary_id}")
@@ -65,9 +67,11 @@ class DiaryOperationsMixin:
             return False
 
         date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        stripped = new_content.strip()
+        tokens = self.compute_tokens(stripped)
         rowcount = self._execute(
-            "UPDATE diaries SET content = ?, date = ? WHERE id = ?",
-            (new_content.strip(), date, diary_id),
+            "UPDATE diaries SET content = ?, date = ?, tokens = ? WHERE id = ?",
+            (stripped, date, tokens, diary_id),
             fetch='rowcount'
         )
 

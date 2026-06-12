@@ -42,16 +42,45 @@ class DetailPanel(QWidget):
     def update_content(self, diary, tags_html: str = ""):
         """更新详情内容"""
         if diary:
-            content = f"<b>ID:</b> {diary.id}<br>" \
-                     f"<b>日期:</b> {diary.date}<br>" \
-                     f"<b>查看次数:</b> {diary.view_count}<br>" \
-                     f"<b>标签:</b> {tags_html}<br><br>" \
-                     f"<b>内容:</b><br>{diary.content}"
+            content_html = self._format_content(diary.content)
+            content = "<b>ID:</b> {}<br>" \
+                     "<b>日期:</b> {}<br>" \
+                     "<b>查看次数:</b> {}<br>" \
+                     "<b>标签:</b> {}<br><br>" \
+                     "<b>内容:</b><br>{}".format(
+                         diary.id, diary.date, diary.view_count, tags_html, content_html
+                     )
             self.detail_label.setText(content)
-            logger.info(f"更新详情面板: diary_id={diary.id}")
+            logger.info("更新详情面板: diary_id={}".format(diary.id))
         else:
             self.detail_label.setText(_("请选择一篇日记查看详情"))
             logger.debug("清空详情面板")
+
+    def set_diary(self, diary, tokens=None, tags_html: str = ""):
+        """
+        显式入口：支持关键词高亮。
+
+        - ``tokens`` 非空时整篇 ``content`` 走 ``highlight_text`` 标黄
+        - 日常表格点击不传 tokens，走 ``update_content`` 原路径
+        """
+        if diary is None:
+            self._last_tokens = []
+            return self.update_content(None)
+        self._last_tokens = list(tokens) if tokens else []
+        self.update_content(diary, tags_html=tags_html)
+
+    def highlight_with_tokens(self, tokens):
+        """由外部（搜索跳转时）调用，更新当前选中的 diary 渲染"""
+        self._last_tokens = list(tokens) if tokens else []
+        self.update()
+
+    def _format_content(self, content: str) -> str:
+        """根据 ``_last_tokens`` 决定是否走高亮 HTML"""
+        tokens = getattr(self, '_last_tokens', None) or []
+        if not tokens:
+            return content
+        from utils.text_highlighter import highlight_text
+        return highlight_text(content, tokens)
 
     def set_max_height(self, max_height: int, min_height: int = 80):
         """设置面板高度限制"""

@@ -36,9 +36,11 @@ class DiaryContentService:
             return None
         
         date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        stripped = content.strip()
+        tokens = self.db_manager.compute_tokens(stripped)
         diary_id = self.db_manager._execute(
-            "INSERT INTO diaries (date, content, view_count) VALUES (?, ?, ?)",
-            (date, content.strip(), 0)
+            "INSERT INTO diaries (date, content, view_count, tokens) VALUES (?, ?, ?, ?)",
+            (date, stripped, 0, tokens)
         )
         
         if diary_id:
@@ -46,7 +48,7 @@ class DiaryContentService:
             return {
                 'id': diary_id,
                 'date': date,
-                'content': content.strip(),
+                'content': stripped,
                 'view_count': 0
             }
         return None
@@ -83,9 +85,11 @@ class DiaryContentService:
             return False
         
         date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        stripped = new_content.strip()
+        tokens = self.db_manager.compute_tokens(stripped)
         rowcount = self.db_manager._execute(
-            "UPDATE diaries SET content = ?, date = ? WHERE id = ?",
-            (new_content.strip(), date, diary_id),
+            "UPDATE diaries SET content = ?, date = ?, tokens = ? WHERE id = ?",
+            (stripped, date, tokens, diary_id),
             fetch='rowcount'
         )
         

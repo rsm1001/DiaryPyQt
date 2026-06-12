@@ -10,7 +10,6 @@ import pytest
 
 from models.enhanced_database import EnhancedDatabaseManager
 
-
 @pytest.fixture
 def temp_db_manager(temp_db_path):
     """
@@ -209,19 +208,15 @@ class TestDatabaseQueryMixin:
 
     @pytest.fixture
     def populated_db(self, temp_db_manager):
-        """填充测试数据的数据库"""
-        # 插入多篇日记
+        """填充测试数据的数据库（用 add_diary 走完整 tokens 同步）"""
         diaries = [
-            ('2026-05-21 10:00:00', '今天的内容', 10),
-            ('2026-05-20 10:00:00', '昨天的内容', 5),
-            ('2026-05-19 10:00:00', '前天的内容', 0),
-            ('2026-01-01 10:00:00', '年初的内容', 100),
+            '今天的内容',
+            '昨天的内容',
+            '前天的内容',
+            '年初的内容',
         ]
-        for date, content, views in diaries:
-            temp_db_manager._execute(
-                "INSERT INTO diaries (date, content, view_count) VALUES (?, ?, ?)",
-                (date, content, views)
-            )
+        for content in diaries:
+            temp_db_manager.add_diary(content)
         return temp_db_manager
 
     def test_get_most_viewed_diaries(self, populated_db):
@@ -246,8 +241,9 @@ class TestDatabaseQueryMixin:
         assert result[0]['content'] == "今天的内容"
 
     def test_search_by_keyword_no_match(self, populated_db):
-        """搜索无结果"""
-        result = populated_db.search_by_keyword("不存在的关键词")
+        """搜索无结果（多语种语义下：所有 token 都无命中）"""
+        # 用一个与现有日记完全无交集的查询串（每字符 / 单词都不在数据中）
+        result = populated_db.search_by_keyword("zzz不存在abc")
 
         assert len(result) == 0
 
@@ -255,6 +251,45 @@ class TestDatabaseQueryMixin:
         """空关键词应返回空列表"""
         result = populated_db.search_by_keyword("")
 
+        assert result == []
+
+    def test_search_japanese_keyword(self, temp_db_manager):
+        """修 Bug：日文假名查询能命中（原本 has_chinese 范围漏掉）"""
+        temp_db_manager.add_diary("今天天气很好")
+        temp_db_manager.add_diary("ありがとう日本")
+        result = temp_db_manager.search_by_keyword("ありがとう")
+        # 即便 LIKE 兜底也要能命中
+        assert any("ありがとう" in r['content'] for r in result)
+
+    def test_search_korean_keyword(self, temp_db_manager):
+        """修 Bug：韩文查询能命中（原本 has_chinese 范围漏掉 Hangul）"""
+        temp_db_manager.add_diary("今天天气很好")
+        temp_db_manager.add_diary("안녕하세요韩国")
+        result = temp_db_manager.search_by_keyword("안녕")
+        assert any("안녕" in r['content'] for r in result)
+
+    def test_search_cjk_extension_a(self, temp_db_manager):
+        """修 Bug：CJK 扩展 A 罕用字也能命中"""
+        # U+3400 段
+        rare_char = '㐀'
+        temp_db_manager.add_diary("今天天气")
+        temp_db_manager.add_diary("这个字是罕用：" + rare_char + "字")
+        result = temp_db_manager.search_by_keyword(rare_char)
+        assert any(rare_char in r['content'] for r in result)
+
+    def test_search_mixed_script(self, temp_db_manager):
+        """跨脚本搜索：CJK + 拉丁"""
+        temp_db_manager.add_diary("今天 hello world")
+        temp_db_manager.add_diary("纯中文记录")
+        temp_db_manager.add_diary("hello another")
+        # 搜 "今天 hello" → 应只命中第一篇
+        result = temp_db_manager.search_by_keyword("今天 hello")
+        assert any("今天 hello" in r['content'] for r in result)
+
+    def test_search_returns_no_results_for_unknown(self, temp_db_manager):
+        """完全无命中的关键词返回空列表（不抛错）"""
+        temp_db_manager.add_diary("正常内容")
+        result = temp_db_manager.search_by_keyword("zzz完全找不到abc")
         assert result == []
 
     def test_get_random_diary(self, populated_db):
@@ -333,5 +368,80 @@ class TestDiaryOperationsMixin:
 #     def test_get_all_trash_diaries(self, temp_db_manager):
 #         ...
 #
+
+# =============================================================================
+# FTS5 / 多语种搜索迁移与回填
+# =============================================================================
+class TestFts5Migration:
+    """测试旧库（无 tokens 列、单列 FTS5）能自动迁移到 3 列 FTS5"""
+
+    def test_legacy_db_gets_tokens_column(self, tmp_path):
+        """模拟一个旧版 diaries 表（无 tokens 列），新管理器初始化后应补列 + 回填"""
+        db_path = str(tmp_path / "legacy_diary.db")
+        # 手动建一个旧版 diaries 表
+        conn = sqlite3.connect(db_path)
+        conn.execute('''
+            CREATE TABLE diaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                content TEXT NOT NULL,
+                view_count INTEGER DEFAULT 0,
+                last_viewed_at TEXT
+            )
+        ''')
+        conn.execute(
+            "INSERT INTO diaries (date, content, view_count) VALUES (?, ?, ?)",
+            ('2026-05-21 10:00:00', '今天 hello 天气', 0)
+        )
+        conn.commit()
+        conn.close()
+
+        # 用 EnhancedDatabaseManager 初始化
+        db = EnhancedDatabaseManager(db_path)
+        try:
+            # tokens 列应已存在
+            conn = db._get_write_connection()
+            cur = conn.execute("PRAGMA table_info(diaries)")
+            cols = {row[1] for row in cur.fetchall()}
+            assert "tokens" in cols
+
+            # tokens 应被回填
+            cur = conn.execute("SELECT tokens FROM diaries WHERE id = 1")
+            row = cur.fetchone()
+            assert row is not None
+            assert row[0]  # 非空
+
+            # 搜索能工作
+            result = db.search_by_keyword("今天 hello")
+            assert any("今天 hello" in r['content'] for r in result)
+        finally:
+            db.close()
+
+    def test_fresh_db_works(self, temp_db_manager):
+        """全新数据库：add_diary 后能正常搜索"""
+        temp_db_manager.add_diary("今天天气很好")
+        result = temp_db_manager.search_by_keyword("今天")
+        assert any("今天" in r['content'] for r in result)
+
+    def test_update_diary_resyncs_tokens(self, temp_db_manager):
+        """update_diary 后 tokens / FTS5 应被同步更新"""
+        temp_db_manager.add_diary("原始内容 alpha")
+        # 第一次搜 alpha
+        r1 = temp_db_manager.search_by_keyword("alpha")
+        assert any("alpha" in r['content'] for r in r1)
+
+        # 找出该日记 id 并更新
+        rows = temp_db_manager.get_all_diaries(limit=10)
+        target = next(r for r in rows if "alpha" in r['content'])
+        assert temp_db_manager.update_diary(target['id'], "完全不一样的 beta 文本")
+
+        # 搜 alpha 应无命中
+        r2 = temp_db_manager.search_by_keyword("alpha")
+        assert not any("alpha" in r['content'] for r in r2)
+
+        # 搜 beta 应有命中
+        r3 = temp_db_manager.search_by_keyword("beta")
+        assert any("beta" in r['content'] for r in r3)
+
 #     def test_purge_from_trash(self, temp_db_manager):
 #         ...

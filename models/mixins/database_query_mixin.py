@@ -2,7 +2,10 @@
 数据库查询模块 - 将EnhancedDatabaseManager中的查询功能独立出来
 """
 
+import logging
 from typing import List, Dict, Optional, Any
+
+logger = logging.getLogger(__name__)
 
 class DatabaseQueryMixin:
     """数据库查询混入类，提供各种高级查询功能"""
@@ -128,7 +131,12 @@ class DatabaseQueryMixin:
 
     def search_by_keyword(self, keyword: str, limit: int = 18) -> List[Dict[str, Any]]:
         """
-        根据关键词搜索日记（智能搜索：FTS5 + LIKE 回退）
+        根据关键词搜索日记（多语种分词 + FTS5 + LIKE 兜底）
+
+        - 自动按脚本分词：CJK / 日 / 韩按字符 unigram；拉丁按词
+        - 拼 FTS5 MATCH 表达式，跨脚本 AND / 段内短语
+        - FTS5 无结果或抛错时回退到 LIKE OR（应用层拼多 token）
+        - FTS5 在当前 SQLite 构建未启用时直接走 LIKE
 
         Args:
             keyword: 搜索关键词
@@ -140,51 +148,53 @@ class DatabaseQueryMixin:
         if not keyword or not keyword.strip():
             return []
 
+        from utils.text_tokenizer import build_fts_match, like_or_pattern
+
         fts_keyword = keyword.strip()
+        match_expr, tokens = build_fts_match(fts_keyword)
+        if not match_expr:
+            return []
 
-        # 检测是否包含中文字符（中文场景下 FTS5 分词效果不佳，优先 LIKE）
-        has_chinese = any('一' <= c <= '鿿' for c in fts_keyword)
+        # FTS5 不可用时直接走 LIKE
+        if not getattr(self, '_fts5_available', True):
+            return self._like_or_fallback(fts_keyword, tokens, limit)
 
-        if has_chinese:
-            # 中文搜索：使用 LIKE 兜底（保证准确性）
-            return self._execute(
-                """
-                SELECT * FROM diaries
-                WHERE LOWER(content) LIKE LOWER(?)
-                ORDER BY view_count DESC, date DESC
-                LIMIT ?
-                """,
-                (f"%{fts_keyword.lower()}%", limit),
-                fetch='all'
-            ) or []
-
-        # 英文/拉丁语系：优先 FTS5（高性能），无结果时 LIKE 兜底
-        results = self._execute(
-            """
-            SELECT d.* FROM diaries d
-            INNER JOIN diaries_fts fts ON d.id = fts.rowid
-            WHERE diaries_fts MATCH ?
-            ORDER BY d.view_count DESC, d.date DESC
-            LIMIT ?
-            """,
-            (fts_keyword, limit),
-            fetch='all'
-        ) or []
-
-        # FTS5 搜索无结果时，LIKE 兜底
-        if not results:
+        # 优先 FTS5
+        try:
             results = self._execute(
                 """
-                SELECT * FROM diaries
-                WHERE LOWER(content) LIKE LOWER(?)
-                ORDER BY view_count DESC, date DESC
+                SELECT d.* FROM diaries d
+                INNER JOIN diaries_fts fts ON d.id = fts.rowid
+                WHERE diaries_fts MATCH ?
+                ORDER BY d.view_count DESC, d.date DESC
                 LIMIT ?
                 """,
-                (f"%{fts_keyword.lower()}%", limit),
+                (match_expr, limit),
                 fetch='all'
             ) or []
+        except Exception as exc:
+            logger.warning("FTS5 MATCH 失败，回退 LIKE: %s", exc)
+            results = []
 
+        # FTS5 无结果时 LIKE 兜底
+        if not results:
+            results = self._like_or_fallback(fts_keyword, tokens, limit)
         return results
+
+    def _like_or_fallback(self, raw_keyword: str, tokens, limit: int) -> List[Dict[str, Any]]:
+        """LIKE OR 兜底：每 token 一条 LIKE，多 token 用 OR 串联"""
+        from utils.text_tokenizer import like_or_pattern
+
+        patterns = like_or_pattern(raw_keyword)
+        if not patterns:
+            return []
+        conds = ' OR '.join('LOWER(content) LIKE LOWER(?)' for _ in patterns)
+        query = (
+            f"SELECT * FROM diaries WHERE {conds} "
+            f"ORDER BY view_count DESC, date DESC LIMIT ?"
+        )
+        params = tuple(patterns) + (limit,)
+        return self._execute(query, params, fetch='all') or []
 
     def get_tags_for_diaries(self, diary_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
         """
