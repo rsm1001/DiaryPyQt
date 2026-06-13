@@ -32,20 +32,20 @@ def compile_po_to_mo(po_path, mo_path):
         if line.startswith('#'):
             continue
         if line.startswith('msgctxt '):
-            msgctxt = unescape(line[8:])
+            msgctxt = unescape(line[8:].strip('"'))
             msgid = None
             msgstr = None
         elif line.startswith('msgid '):
             if msgid is not None and msgstr is not None:
                 key = (msgctxt or '', msgid)
-                if msgid:
+                if msgid is not None:
                     msgs[key] = msgstr
-            msgid = unescape(line[6:])
+            msgid = unescape(line[6:].strip('"'))
             msgstr = None
             in_msgid = True
             in_msgstr = False
         elif line.startswith('msgstr '):
-            msgstr = unescape(line[7:])
+            msgstr = unescape(line[7:].strip('"'))
             in_msgid = False
             in_msgstr = True
         elif line.startswith('"') and line.endswith('"'):
@@ -56,7 +56,7 @@ def compile_po_to_mo(po_path, mo_path):
                 msgstr += part
 
     # Add last entry
-    if msgid is not None and msgstr is not None and msgid:
+    if msgid is not None and msgstr is not None:
         key = (msgctxt or '', msgid)
         msgs[key] = msgstr
 
@@ -66,7 +66,8 @@ def compile_po_to_mo(po_path, mo_path):
 
     magic = 0x950412de
     version = 0
-    orig_tab_offset = 24
+    # MO header is 7 uint32s = 28 bytes; orig table starts immediately after.
+    orig_tab_offset = 28
     trans_tab_offset = orig_tab_offset + nstrings * 8
     hash_tab_offset = trans_tab_offset + nstrings * 8
     hash_tab_size = 0
@@ -116,9 +117,8 @@ def compile_po_to_mo(po_path, mo_path):
             f.write(struct.pack('I', 0))
 
         for orig, trans in orig_strings:
-            if orig:
-                f.write(orig.encode('utf-8'))
-                f.write(b'\x00')
+            f.write(orig.encode('utf-8'))
+            f.write(b'\x00')
             f.write(trans.encode('utf-8'))
             f.write(b'\x00')
 
