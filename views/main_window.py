@@ -73,7 +73,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(_("日记管理系统 - PyQt版"))
         screen = QApplication.primaryScreen().geometry()
         self.setGeometry(
-            (screen.width() - 1000) // 2, (screen.height() - 700) // 2, 1000, 700
+            (screen.width() - 1100) // 2, (screen.height() - 770) // 2, 1100, 770
         )
 
         central_widget = QWidget()

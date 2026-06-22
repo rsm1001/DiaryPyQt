@@ -27,7 +27,7 @@ class DiaryEditDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
     def init_ui(self):
         """初始化界面"""
         self.setWindowTitle(_("编辑日记") if self.diary else _("新建日记"))
-        self.resize(600, 500)
+        self.resize(770, 660)
         self.center_on_parent()
         
         layout = QVBoxLayout()
@@ -102,7 +102,7 @@ class DiaryViewDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
     def init_ui(self):
         """初始化界面"""
         self.setWindowTitle(_("查看日记"))
-        self.resize(700, 600)
+        self.resize(770, 660)
         self.center_on_parent()
         
         layout = QVBoxLayout()
