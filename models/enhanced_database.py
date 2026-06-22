@@ -14,6 +14,7 @@ from .mixins.database_query_mixin import DatabaseQueryMixin
 from .repository.diary_operations import DiaryOperationsMixin
 from .repository.trash_mixin import TrashMixin
 from .migration_backup_manager import MigrationBackupManager
+from .schema.factory import SchemaInitializerCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ class EnhancedDatabaseManager(
 
         self._db_path = db_path
         self._db_lock = threading.RLock()
+        self._fts5_available = True  # 默认值，实际值在_init_database中设置
 
         # 初始化读写分离连接池
         self._init_pool()
@@ -102,7 +104,6 @@ class EnhancedDatabaseManager(
             logger.error(f"启动恢复失败（已忽略，不影响本次启动）: {exc}")
 
         # 显式初始化各服务（不再依赖 __getattr__ 兜底）
-        # 这样 hasattr / 调试 / IDE 补全都不会再有副作用
         self._init_services()
 
         logger.info(f"EnhancedDatabaseManager 初始化完成，数据库路径: {os.path.abspath(self.db_path)}")
@@ -147,213 +148,23 @@ class EnhancedDatabaseManager(
         )
 
     # -------------------------------------------------------------------------
-    # 数据库Schema初始化
+    # 数据库Schema初始化（委托给Schema协调器）
     # -------------------------------------------------------------------------
 
     def _init_database(self):
-        """初始化数据库表、索引和性能配置"""
+        """初始化数据库表、索引和性能配置（委托给Schema协调器）"""
         # 确保连接池已初始化（restore_database 等场景可能已关闭连接池）
         if self._write_conn is None:
             self._init_pool()
 
         conn = self._get_write_connection()
-        cursor = conn.cursor()
 
-        # 自检 FTS5 是否可用（Python 3.8 内置 sqlite3 多数发行版已含；缺则降级 LIKE-only）
-        self._fts5_available = self._probe_fts5(cursor)
-        if not self._fts5_available:
-            logger.warning("当前 SQLite 构建未启用 FTS5，搜索将自动降级为 LIKE 模式")
-
-        # ---- 日记主表 ----
-        # date  = 创建时间（写入后永不变；update_diary 不得覆盖）
-        # updated_at = 最近一次内容编辑时间（NULL 表示从未被编辑，仍等于 date）
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS diaries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT NOT NULL,
-                content TEXT NOT NULL,
-                view_count INTEGER DEFAULT 0,
-                last_viewed_at TEXT,
-                tokens TEXT,
-                updated_at TEXT
-            )
-        ''')
-
-        # 为已有表添加 last_viewed_at 列（兼容旧数据库）
-        try:
-            cursor.execute('ALTER TABLE diaries ADD COLUMN last_viewed_at TEXT')
-        except Exception:
-            pass  # 列已存在
-
-        # 为已有表添加 tokens 列（兼容旧数据库；多语种分词的预分词结果）
-        try:
-            cursor.execute('ALTER TABLE diaries ADD COLUMN tokens TEXT')
-        except Exception:
-            pass  # 列已存在
-
-        # 为已有表添加 updated_at 列（兼容旧数据库；区分"何时写下"与"何时改了它"）
-        try:
-            cursor.execute('ALTER TABLE diaries ADD COLUMN updated_at TEXT')
-        except Exception:
-            pass  # 列已存在
-
-        # 回填旧库：updated_at 默认等于 date（语义上"创建即最新"）
-        cursor.execute(
-            'UPDATE diaries SET updated_at = date '
-            'WHERE updated_at IS NULL OR updated_at = ""'
-        )
-
-        # ---- 标签表 ----
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tags (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        # ---- 2PC 跨库协调：pending_trash_ops（主库侧）----
-        # 配合垃圾桶库的 pending_trash_ops 一起做两阶段提交
-        # op_id: 全局唯一 UUID（在 2PC 入口处生成）
-        # op_type: 'move' / 'restore'
-        # state: 'pending' -> 'applied' -> 'committed'
-        # payload: JSON 序列化的"真实写"所需的所有参数
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS pending_trash_ops (
-                op_id TEXT PRIMARY KEY,
-                op_type TEXT NOT NULL,
-                diary_id INTEGER,
-                trash_id INTEGER,
-                payload TEXT NOT NULL,
-                state TEXT NOT NULL DEFAULT 'pending',
-                created_at TEXT NOT NULL DEFAULT '',
-                updated_at TEXT
-            )
-        ''')
-        cursor.execute(
-            'CREATE INDEX IF NOT EXISTS idx_pending_trash_state '
-            'ON pending_trash_ops(state)'
-        )
-
-        # ---- 日记-标签关联表 ----
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS diary_tags (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                diary_id INTEGER NOT NULL,
-                tag_id INTEGER NOT NULL,
-                FOREIGN KEY (diary_id) REFERENCES diaries(id) ON DELETE CASCADE,
-                FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE,
-                UNIQUE(diary_id, tag_id)
-            )
-        ''')
-
-        # ---- 每日统计表 ----
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS daily_stats (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                stat_date TEXT NOT NULL UNIQUE,
-                yesterday_total_views INTEGER DEFAULT 0,
-                all_time_max_single_views INTEGER DEFAULT 0,
-                all_time_max_diary_id INTEGER,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        # ---- 查看日志表 ----
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS view_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                diary_id INTEGER NOT NULL,
-                viewed_at TEXT NOT NULL,
-                FOREIGN KEY (diary_id) REFERENCES diaries(id) ON DELETE CASCADE
-            )
-        ''')
-
-        # ---- 应用配置表 ----
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS app_config (
-                key TEXT PRIMARY KEY,
-                value INTEGER DEFAULT 0,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        # 初始化历史最佳值为 0
-        cursor.execute(
-            'INSERT OR IGNORE INTO app_config (key, value) VALUES (?, 0)',
-            ('all_time_max_daily_views',)
-        )
-
-        # ---- 索引 ----
-        cursor.execute('DROP INDEX IF EXISTS idx_diaries_date')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_date ON diaries(date)')
-        cursor.execute('DROP INDEX IF EXISTS idx_diaries_view_count')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_view_count ON diaries(view_count)')
-        cursor.execute('DROP INDEX IF EXISTS idx_diaries_content')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_content ON diaries(content)')
-        cursor.execute('DROP INDEX IF EXISTS idx_diaries_content_lower')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_content_lower ON diaries(LOWER(content))')
-        cursor.execute('DROP INDEX IF EXISTS idx_diary_tags_diary_id')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_diary_tags_diary_id ON diary_tags(diary_id)')
-        cursor.execute('DROP INDEX IF EXISTS idx_diary_tags_tag_id')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_diary_tags_tag_id ON diary_tags(tag_id)')
-        cursor.execute('DROP INDEX IF EXISTS idx_view_log_viewed_at')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_viewed_at ON view_log(viewed_at)')
-        cursor.execute('DROP INDEX IF EXISTS idx_view_log_diary_id')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_view_log_diary_id ON view_log(diary_id)')
-        # updated_at 索引：支持"今日改过""最近编辑"等查询
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_diaries_updated_at ON diaries(updated_at)')
-
-        # ---- FTS5 全文搜索表 ----
-        # 3 列：原 content（兼容 unicode61 短语）+ 预分词 tokens（覆盖 CJK / 日韩 / 扩展汉字）
-        # 应用层在写库前算好 tokens 串，写入 diaries.tokens；触发器镜像到 FTS5
-        # 外层用 """ 以便内层 tokenize 字符串可写 '' 转义形式
-        cursor.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS diaries_fts USING fts5(
-                content,
-                tokens,
-                content='diaries',
-                content_rowid='id',
-                tokenize='unicode61 remove_diacritics 2 categories ''L* N* Co'''
-            )
-        """)
-
-        # 旧库迁移：若 FTS5 仍是单列（content）布局，删掉重建为 3 列
-        self._migrate_fts5_schema(cursor)
-
-        # 初始化 FTS 表（将已有数据灌入，使用 REPLACE 确保已存在的行也被更新）
-        cursor.execute(
-            "INSERT OR REPLACE INTO diaries_fts(rowid, content, tokens) "
-            "SELECT id, content, COALESCE(tokens, '') FROM diaries"
-        )
-
-        # 回填缺失的 tokens（兼容旧库：tokens 列为 NULL 的日记）
-        self._backfill_tokens(cursor)
-
-        # ---- FTS5 同步触发器 ----
-        # INSERT 触发器
-        cursor.execute('''
-            CREATE TRIGGER IF NOT EXISTS diaries_fts_insert AFTER INSERT ON diaries BEGIN
-                INSERT INTO diaries_fts(rowid, content, tokens) VALUES (new.id, new.content, COALESCE(new.tokens, ''));
-            END
-        ''')
-
-        # UPDATE 触发器
-        cursor.execute('''
-            CREATE TRIGGER IF NOT EXISTS diaries_fts_update AFTER UPDATE ON diaries BEGIN
-                INSERT INTO diaries_fts(diaries_fts, rowid, content, tokens) VALUES ('delete', old.id, old.content, COALESCE(old.tokens, ''));
-                INSERT INTO diaries_fts(rowid, content, tokens) VALUES (new.id, new.content, COALESCE(new.tokens, ''));
-            END
-        ''')
-
-        # DELETE 触发器
-        cursor.execute('''
-            CREATE TRIGGER IF NOT EXISTS diaries_fts_delete AFTER DELETE ON diaries BEGIN
-                INSERT INTO diaries_fts(diaries_fts, rowid, content, tokens) VALUES ('delete', old.id, old.content, COALESCE(old.tokens, ''));
-            END
-        ''')
+        # 使用Schema初始化器协调器进行初始化
+        coordinator = SchemaInitializerCoordinator(conn)
+        self._fts5_available = coordinator.run_initialization()
 
         # ---- 性能优化PRAGMA ----
+        cursor = conn.cursor()
         cursor.execute('PRAGMA journal_mode=WAL')
         cursor.execute('PRAGMA synchronous=NORMAL')
         cursor.execute('PRAGMA cache_size=10000')
@@ -363,104 +174,20 @@ class EnhancedDatabaseManager(
         conn.commit()
         logger.info("数据库初始化完成")
 
-    # -------------------------------------------------------------------------
-    # FTS5 多语种搜索支持
-    # -------------------------------------------------------------------------
-
-    def _probe_fts5(self, cursor) -> bool:
-        """
-        自检当前 SQLite 构建是否启用 FTS5。
-
-        通过 ``CREATE VIRTUAL TABLE t USING fts5(x)`` 试探；失败则降级 LIKE-only。
-        """
-        try:
-            cursor.execute("CREATE VIRTUAL TABLE _fts5_probe USING fts5(x)")
-            cursor.execute("DROP TABLE _fts5_probe")
-            return True
-        except Exception as exc:  # FTS5 未编译进 sqlite3 时抛 OperationalError
-            logger.debug("FTS5 自检失败: %s", exc)
-            return False
-
-    def _migrate_fts5_schema(self, cursor) -> None:
-        """
-        若 FTS5 仍是单列（content）布局，删掉重建为 3 列（content, tokens）。
-
-        SQLite 不支持 ALTER VIRTUAL TABLE，因此直接 DROP 后依赖后续 CREATE
-        （CREATE VIRTUAL TABLE IF NOT EXISTS 已经走过，这里走老路径清理）。
-        """
-        if not self._fts5_available:
-            return
-        try:
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='diaries_fts'")
-            row = cursor.fetchone()
-            if not row:
-                return
-            # 用 PRAGMA table_info 拿列数（contentless 表仍支持）
-            cursor.execute("PRAGMA table_info(diaries_fts)")
-            cols = cursor.fetchall()
-            # contentless FTS5 表 PRAGMA 拿不到列；用另一种方式：直接尝试三列 INSERT
-            cursor.execute("SELECT 1 FROM diaries_fts LIMIT 0")
-        except Exception:
-            return
-
-        # 探查是否已经支持 tokens 列：尝试一次三列写
-        try:
-            cursor.execute(
-                "INSERT INTO diaries_fts(rowid, content, tokens) VALUES (-1, '', '')"
-            )
-            cursor.execute("INSERT INTO diaries_fts(diaries_fts, rowid, content, tokens) VALUES ('delete', -1, '', '')")
-            return  # 三列已支持，无需迁移
-        except Exception:
-            pass  # 仍是旧 schema，需要重建
-
-        logger.info("检测到旧版 FTS5 schema（单列），开始迁移到 3 列布局")
-        # 删除旧 FTS5 表和旧触发器
-        cursor.execute("DROP TABLE IF EXISTS diaries_fts")
-        for trig in ("diaries_fts_insert", "diaries_fts_update", "diaries_fts_delete"):
-            cursor.execute(f"DROP TRIGGER IF EXISTS {trig}")
-        # 重新建（3 列）
-        cursor.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS diaries_fts USING fts5(
-                content,
-                tokens,
-                content='diaries',
-                content_rowid='id',
-                tokenize='unicode61 remove_diacritics 2 categories ''L* N* Co'''
-            )
-        """)
-
-    def _backfill_tokens(self, cursor) -> None:
-        """回填 diaries.tokens（NULL 或空串的行）"""
-        from utils.text_tokenizer import tokenize
-        try:
-            cursor.execute("SELECT id, content FROM diaries WHERE tokens IS NULL OR tokens = ''")
-        except Exception:
-            return
-        rows = cursor.fetchall()
-        if not rows:
-            return
-        updated = 0
-        for row in rows:
-            diary_id = row['id'] if isinstance(row, sqlite3.Row) else row[0]
-            content = row['content'] if isinstance(row, sqlite3.Row) else row[1]
-            tokens_str = ' '.join(tokenize(content or ''))
-            cursor.execute("UPDATE diaries SET tokens = ? WHERE id = ?", (tokens_str, diary_id))
-            updated += 1
-        if updated:
-            logger.info("回填 tokens 完成，共 %d 条", updated)
-
     def compute_tokens(self, content: str) -> str:
         """
         对外暴露：把内容算成 tokens 空格串（写库前用）。
 
         - 无 FTS5 时返回空串（旧 LIKE 行为）
+        - 委托给 FTS5SchemaInitializer 实现
         """
         if not content:
             return ''
         if not getattr(self, '_fts5_available', True):
             return ''
-        from utils.text_tokenizer import tokenize
-        return ' '.join(tokenize(content))
+        from models.schema.fts5 import FTS5SchemaInitializer
+        fts5_init = FTS5SchemaInitializer(self._get_write_connection())
+        return fts5_init.compute_tokens(content, self._fts5_available)
 
     # -------------------------------------------------------------------------
     # 公开API（代理到各服务）
