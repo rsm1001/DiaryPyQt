@@ -236,15 +236,88 @@ class TrashTwoPhaseCommitCoordinator:
                 recovered += 1
                 continue
 
-            # 其他不一致情形 -> 以主库为准：把垃圾桶库对齐到主库
+            # 主库有行但垃圾桶库无行 -> 补齐后重放真实写（而非仅镜像状态）
             if m and not t:
-                self.mirror_pending_to_trash(m)
-                logger.info("2PC 恢复: %s 补齐垃圾桶库 pending 行", op_id)
+                self._recover_missing_trash_row(m)
+                logger.info("2PC 恢复: %s 补齐垃圾桶库并重放真实写", op_id)
+                recovered += 1
+            # 垃圾桶库有行但主库无行 -> 补齐后重放真实写
             elif t and not m:
-                self.mirror_pending_to_main(t)
-                logger.info("2PC 恢复: %s 补齐主库 pending 行", op_id)
+                if self._recover_missing_main_row(t):
+                    logger.info("2PC 恢复: %s 补齐主库并重放真实写", op_id)
+                    recovered += 1
 
         return recovered
+
+    def _recover_missing_trash_row(self, main_row: Dict[str, Any]) -> None:
+        """主库有 pending 行但垃圾桶库缺失：以主库为准重放真实写
+
+        - state='pending' : apply_to_main + commit_to_trash（两阶段都未执行）
+        - state='applied': commit_to_trash（仅 phase 3 漏执行）
+        """
+        payload = self._deserialize_payload(main_row['payload'])
+        op_id = main_row['op_id']
+        op_type = main_row['op_type']
+        diary_id = main_row['diary_id']
+        trash_id = main_row['trash_id']
+
+        if main_row['state'] == 'pending':
+            # phase 2 + phase 3 都未执行，先补 apply_to_main
+            self.apply_to_main(op_id, op_type, diary_id, trash_id, payload)
+        # phase 3 必然未执行（或 state 已 applied 但垃圾桶库无行），重放 phase 3
+        self.commit_to_trash(op_id, op_type, diary_id, trash_id, payload)
+
+    def _recover_missing_main_row(self, trash_row: Dict[str, Any]) -> bool:
+        """垃圾桶库有 pending 行但主库缺失：以垃圾桶库为准重放真实写
+
+        - state='pending' : apply_to_main（phase 2 漏执行），再视情况重放 phase 3
+        - state='applied': commit_to_trash（phase 3 漏执行，phase 2 已由垃圾桶库记录）
+
+        Returns:
+            True 表示已成功重放，False 表示无需处理（如已 committed）
+        """
+        payload = self._deserialize_payload(trash_row['payload'])
+        op_id = trash_row['op_id']
+        op_type = trash_row['op_type']
+        diary_id = trash_row['diary_id']
+        trash_id = trash_row['trash_id']
+
+        if trash_row['state'] == 'committed':
+            # 垃圾桶库已 committed，主库缺失行，仅需镜像到主库后无事可做
+            self._mirror_trash_row_to_main(trash_row)
+            return False
+
+        if trash_row['state'] in ('pending', 'applied'):
+            # phase 2 漏执行：apply_to_main 对 move(DELETE) 幂等，对 restore(INSERT)
+            # 若主库已有该日记会抛 UNIQUE 约束异常，不产生脏数据
+            self.apply_to_main(op_id, op_type, diary_id, trash_id, payload)
+        if trash_row['state'] == 'applied':
+            # phase 3 漏执行，仅重放 phase 3
+            self.commit_to_trash(op_id, op_type, diary_id, trash_id, payload)
+        return True
+
+    def _mirror_trash_row_to_main(self, trash_row: Dict[str, Any]) -> None:
+        """把垃圾桶库的 pending 行镜像到主库（INSERT OR REPLACE）"""
+        now = self._now()
+        with self._main_db._transaction() as cursor:
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO pending_trash_ops
+                (op_id, op_type, diary_id, trash_id, payload, state,
+                 created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, ''), ?)
+                """,
+                (
+                    trash_row['op_id'],
+                    trash_row['op_type'],
+                    trash_row['diary_id'],
+                    trash_row['trash_id'],
+                    trash_row['payload'],
+                    trash_row['state'],
+                    trash_row.get('created_at') or '',
+                    trash_row.get('updated_at') or now,
+                ),
+            )
 
     # ------------------------------------------------------------------
     # 跨库镜像 / 清理
@@ -271,7 +344,12 @@ class TrashTwoPhaseCommitCoordinator:
             logger.warning("清理垃圾桶库 pending 失败 %s: %s", op_id, exc)
 
     def mirror_pending_to_trash(self, main_row: Dict[str, Any]) -> None:
-        """把主库的 pending 行镜像到垃圾桶库（INSERT OR REPLACE）"""
+        """把主库的 pending 行镜像到垃圾桶库（INSERT OR REPLACE）
+
+        .. deprecated::
+            仅镜像 pending_trash_ops 元数据，不执行真实写，不应再用于崩溃恢复。
+            请使用 :meth:`_recover_missing_trash_row`（内部方法）。
+        """
         now = self._now()
         with self._pool.lock:
             trash_cursor = self._pool.connection.cursor()
