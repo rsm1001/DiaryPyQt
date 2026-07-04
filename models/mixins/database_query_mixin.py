@@ -81,29 +81,47 @@ class DatabaseQueryMixin:
             fetch='one'
         )
 
-    def get_random_diary(self, limit: int = None) -> Optional[Dict[str, Any]]:
+    def get_random_diary(self, limit: int = None, tag_ids: List[int] = None) -> Optional[Dict[str, Any]]:
         """
         随机获取一篇日记（基于权重概率选择，使用次数越少，被选中概率越大）
         使用改进的归一化方法，对全部日记进行计算（除非指定limit）
 
         Args:
             limit: 最多考虑的日记数量，None表示使用全部日记
+            tag_ids: 标签ID列表，非空时仅从匹配这些标签的日记中选取
 
         Returns:
             日记字典或None
         """
         from ..weight.diary_selection_service import DiarySelectionService
-        
+
         # 使用日记选择服务获取加权随机日记
         service = DiarySelectionService()
-        diaries = self.get_all_diaries() if limit is None else self.get_diaries_with_limit(limit)
-        
+
+        # 根据是否有标签筛选选择数据源
+        if tag_ids:
+            # 多对多任意匹配：日记拥有任一所选标签即进入候选池
+            placeholders = ','.join('?' * len(tag_ids))
+            query = f"""
+                SELECT DISTINCT d.* FROM diaries d
+                INNER JOIN diary_tags dt ON d.id = dt.diary_id
+                WHERE dt.tag_id IN ({placeholders})
+                ORDER BY d.date DESC
+                """
+            params = tuple(tag_ids)
+            candidate_rows = self._execute(query, params, fetch='all') or []
+            if limit is not None and len(candidate_rows) > limit:
+                # 按日期倒序后取前limit条（与原逻辑一致：取最新的）
+                candidate_rows = candidate_rows[:limit]
+            diaries = [dict(row) for row in candidate_rows]
+        else:
+            diaries = self.get_all_diaries() if limit is None else self.get_diaries_with_limit(limit)
+            diaries = [dict(d) for d in diaries]
+
         if not diaries:
             return None
 
-        # 将SQL查询结果转换为字典格式的日记对象
-        diary_dicts = [dict(diary) for diary in diaries]
-        return service.get_weighted_random_diary(diary_dicts)
+        return service.get_weighted_random_diary(diaries)
 
     def get_diary_for_deletion(self, limit: int = None) -> Optional[Dict[str, Any]]:
         """

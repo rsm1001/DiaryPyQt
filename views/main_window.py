@@ -48,6 +48,10 @@ class MainWindow(QMainWindow):
         # 初始化列配置管理器
         self.column_config_manager = ColumnConfigManager()
 
+        # 初始化随机查看筛选管理器
+        from views.components.random_view_filter_manager import RandomViewFilterManager
+        self.random_filter_manager = RandomViewFilterManager()
+
         # 初始化组件管理器
         self.toolbar_manager = MainToolBar(self)
         self.menu_manager = MainMenuBar(self)

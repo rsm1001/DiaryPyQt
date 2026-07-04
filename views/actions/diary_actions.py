@@ -63,7 +63,8 @@ class DiaryActions:
 
     def random_view(self) -> None:
         """随机查看日记"""
-        diary = self._window.controller.random_view_diary()
+        tag_ids = self._window.random_filter_manager.get_selected_tag_ids()
+        diary = self._window.controller.random_view_diary(tag_ids=tag_ids)
         if not diary:
             DiaryActionHelper.show_no_diary(self._window)
             return
