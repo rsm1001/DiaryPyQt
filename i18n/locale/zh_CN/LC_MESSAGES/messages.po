@@ -208,6 +208,9 @@ msgstr "查看日记"
 msgid "保存标签"
 msgstr "保存标签"
 
+msgid "下一个"
+msgstr "下一个"
+
 msgid "关闭"
 msgstr "关闭"
 
@@ -347,6 +350,9 @@ msgstr "提示"
 
 msgid "当前没有日记"
 msgstr "当前没有日记"
+
+msgid "没有更多日记了"
+msgstr "没有更多日记了"
 
 msgid "请先选择一篇日记"
 msgstr "请先选择一篇日记"

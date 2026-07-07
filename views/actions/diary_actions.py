@@ -68,7 +68,7 @@ class DiaryActions:
         if not diary:
             DiaryActionHelper.show_no_diary(self._window)
             return
-        dialog = DiaryViewDialog(diary, self._window, readonly=True)
+        dialog = DiaryViewDialog(diary, self._window, readonly=True, tag_ids=tag_ids)
         dialog.exec()
         self._window.controller.increment_view_count(diary.id)
         self._window.load_data()
@@ -76,16 +76,21 @@ class DiaryActions:
 
     def random_delete(self) -> None:
         """随机删除日记"""
-        diary = self._window.controller.get_diary_for_deletion()
-        if not diary:
-            DiaryActionHelper.show_no_diary(self._window, "没有可删除的日记")
-            return
-        if not DiaryActionHelper.confirm_random_delete(self._window, diary):
-            return
-        self._window.controller.delete_diary_by_id(diary.id)
-        self._window.load_data()
-        DiaryActionHelper.show_delete_success(self._window, diary.id)
-        logger.info("删除日记: id=%s", diary.id)
+        while True:
+            diary = self._window.controller.get_diary_for_deletion()
+            if not diary:
+                DiaryActionHelper.show_no_diary(self._window, "没有可删除的日记")
+                return
+            result = DiaryActionHelper.confirm_random_delete(self._window, diary)
+            if result == 'yes':
+                self._window.controller.delete_diary_by_id(diary.id)
+                self._window.load_data()
+                DiaryActionHelper.show_delete_success(self._window, diary.id)
+                logger.info("删除日记: id=%s", diary.id)
+                return
+            elif result == 'cancel':
+                return
+            # result == 'next': 继续循环获取下一条
 
     def search_diary(self) -> None:
         """搜索日记"""

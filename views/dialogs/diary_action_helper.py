@@ -31,7 +31,7 @@ class DiaryActionHelper:
         return reply == QMessageBox.StandardButton.Yes
 
     @staticmethod
-    def confirm_random_delete(parent, diary) -> bool:
+    def confirm_random_delete(parent, diary) -> str:
         """确认随机删除对话框
 
         Args:
@@ -39,7 +39,7 @@ class DiaryActionHelper:
             diary: 日记对象
 
         Returns:
-            bool: 用户是否确认删除
+            str: 'yes' 确认删除, 'next' 下一个, 'cancel' 取消
         """
         content_preview = diary.content[:200]
         if len(diary.content) > 200:
@@ -52,9 +52,25 @@ class DiaryActionHelper:
                   f"{_('内容:')}\n{content_preview}\n\n"
                   f"{_('确定要删除这条日记吗？')}")
 
-        reply = QMessageBox.question(parent, _("确认删除"), message,
-                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        return reply == QMessageBox.StandardButton.Yes
+        yes_btn = QMessageBox.StandardButton.Yes
+        cancel_btn = QMessageBox.StandardButton.Cancel
+
+        msg_box = QMessageBox(parent)
+        msg_box.setWindowTitle(_("确认删除"))
+        msg_box.setText(message)
+        msg_box.setIcon(QMessageBox.Icon.Question)
+        yes_button = msg_box.addButton(_("是"), QMessageBox.ButtonRole.YesRole)
+        next_button = msg_box.addButton(_("下一个"), QMessageBox.ButtonRole.NoRole)
+        msg_box.addButton(_("取消"), QMessageBox.ButtonRole.RejectRole)
+        msg_box.setDefaultButton(next_button)
+
+        reply = msg_box.exec()
+        clicked = msg_box.clickedButton()
+        if clicked == yes_button:
+            return 'yes'
+        elif clicked == next_button:
+            return 'next'
+        return 'cancel'
 
     @staticmethod
     def confirm_batch_delete(parent, count: int) -> bool:

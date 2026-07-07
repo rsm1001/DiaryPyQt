@@ -208,6 +208,9 @@ msgstr "View Diary"
 msgid "保存标签"
 msgstr "Save Tags"
 
+msgid "下一个"
+msgstr "Next"
+
 msgid "关闭"
 msgstr "Close"
 
@@ -347,6 +350,9 @@ msgstr "Hint"
 
 msgid "当前没有日记"
 msgstr "No diaries available"
+
+msgid "没有更多日记了"
+msgstr "No more diaries"
 
 msgid "请先选择一篇日记"
 msgstr "Please select a diary first"

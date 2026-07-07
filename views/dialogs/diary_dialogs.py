@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence
 
 from i18n import _
+from utils.formatters import format_tags_html
 from widgets.TagSelectorWidget import TagSelectorWidget
 from views.dialogs.base_dialog import CenteredDialogMixin
 from views.dialogs.tag_manager_dialog import TagManagerMixin
@@ -88,11 +89,12 @@ class DiaryEditDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
 
 class DiaryViewDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
     """日记查看对话框"""
-    
-    def __init__(self, diary, parent=None, readonly=False):
+
+    def __init__(self, diary, parent=None, readonly=False, tag_ids=None):
         super().__init__(parent)
         self.diary = diary
         self.readonly = readonly
+        self.tag_ids = tag_ids or []
         self.init_tag_manager()
         self.init_ui()
         self.load_data()
@@ -131,7 +133,7 @@ class DiaryViewDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
         # 按钮区域 - 居中对齐
         button_layout = QHBoxLayout()
         button_layout.addStretch()
-        
+
         # 保存标签按钮
         self.save_tags_btn = QPushButton(_("保存标签"))
         self.save_tags_btn.clicked.connect(self.save_tags)
@@ -139,16 +141,47 @@ class DiaryViewDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
             "QPushButton { background-color: #4CAF50; color: white; }"
         )
         button_layout.addWidget(self.save_tags_btn)
-        
+
+        # 下一个按钮
+        self.next_btn = QPushButton(_("下一个"))
+        self.next_btn.clicked.connect(self.next_diary)
+        button_layout.addWidget(self.next_btn)
+
         self.close_btn = QPushButton(_("关闭"))
         self.close_btn.clicked.connect(self.close)
         button_layout.addWidget(self.close_btn)
         button_layout.addStretch()
-        
+
         layout.addLayout(button_layout)
-        
+
         self.setLayout(layout)
-    
+
+    def next_diary(self):
+        """查看下一篇随机日记"""
+        controller = self.get_controller()
+        new_diary = controller.random_view_diary(tag_ids=self.tag_ids)
+        if not new_diary:
+            QMessageBox.information(self, _("提示"), _("没有更多日记了"))
+            return
+        self.diary = new_diary
+        self.load_data()
+        self.load_tags()
+        self.update_tag_selections()
+        controller.increment_view_count(self.diary.id)
+
+        # 同步更新父窗口的 detail_panel 和 status_bar
+        parent = self.parent()
+        if parent:
+            tags_html = self._format_tags_html()
+            parent.detail_panel.update_content(self.diary, tags_html)
+            parent.update_status_bar()
+
+    def _format_tags_html(self):
+        """格式化标签为 HTML"""
+        if not hasattr(self.diary, 'tags') or not self.diary.tags:
+            return ""
+        return format_tags_html(self.diary.tags)
+
     def load_data(self):
         """加载日记数据"""
         self.content_display.setPlainText(self.diary.content)
