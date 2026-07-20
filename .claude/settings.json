@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import os, pathlib, runpy; runpy.run_path(str(pathlib.Path(os.environ['CLAUDE_PROJECT_DIR']) / '.claude' / 'hooks' / 'style_guard.py'), run_name='__main__')\"",
+            "timeout": 5,
+            "statusMessage": "Checking project code style"
+          }
+        ]
+      }
+    ]
+  }
+}

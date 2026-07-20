@@ -8,7 +8,21 @@ SOUL.md
 TOOLS.md
 USER.md
 MEMORY.md
-/.claude
+
+# Claude Code
+# 默认忽略 .claude 下所有个人/缓存文件
+/.claude/*
+
+# 不被忽略：项目共享 hook 配置
+!/.claude/settings.json
+
+# 不被忽略：项目共享 hook 脚本目录和风格检查脚本
+!/.claude/hooks/
+/.claude/hooks/*
+!/.claude/hooks/style_guard.py
+
+# 继续忽略：个人本地配置
+/.claude/settings.local.json
 
 # Python
 __pycache__/
