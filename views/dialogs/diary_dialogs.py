@@ -163,11 +163,13 @@ class DiaryViewDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
         if not new_diary:
             QMessageBox.information(self, _("提示"), _("没有更多日记了"))
             return
+        new_count = controller.increment_view_count(new_diary.id)
+        if new_count is not None:
+            new_diary.view_count = new_count
         self.diary = new_diary
         self.load_data()
         self.load_tags()
         self.update_tag_selections()
-        controller.increment_view_count(self.diary.id)
 
         # 同步更新父窗口的 detail_panel 和 status_bar
         parent = self.parent()
@@ -184,6 +186,9 @@ class DiaryViewDialog(QDialog, CenteredDialogMixin, TagManagerMixin):
 
     def load_data(self):
         """加载日记数据"""
+        self.id_label.setText(_("ID:") + f" {self.diary.id}")
+        self.date_label.setText(_("日期:") + f" {self.diary.date}")
+        self.views_label.setText(_("查看次数:") + f" {self.diary.view_count}")
         self.content_display.setPlainText(self.diary.content)
         # 加载日记的标签到选中状态
         if hasattr(self.diary, 'tags') and self.diary.tags:

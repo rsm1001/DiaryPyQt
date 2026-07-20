@@ -113,7 +113,7 @@ class TestRandomSelectionNormalization:
                 f"count_weight_norm={item['count_weight_norm']} out of range"
 
     def test_final_weight_in_expected_range(self, strategy, sample_diaries, fixed_now):
-        """final_weight应在合理范围内 (alpha=0.2, beta=1.0)"""
+        """final_weight应在合理范围内 (alpha=0.3, beta=1.0, bonus=0.5)"""
         diary_details = []
         for diary in sample_diaries:
             raw = calculate_raw_weights(diary, fixed_now, 'random')
@@ -121,10 +121,31 @@ class TestRandomSelectionNormalization:
 
         result = strategy.normalize(diary_details)
 
-        # min: 0.2*0 + 1.0*0 = 0, max: 0.2*1 + 1.0*1 = 1.2
+        # min: 0, max: 0.3*1 + 1.0*1 + 0.5 = 1.8
         for item in result:
-            assert 0.0 <= item['final_weight'] <= 1.2, \
-                f"final_weight={item['final_weight']} out of expected range [0, 1.2]"
+            assert 0.0 <= item['final_weight'] <= 1.8, \
+                f"final_weight={item['final_weight']} out of expected range [0, 1.8]"
+
+    def test_zero_view_diary_gets_extra_bonus(self, strategy, sample_diary_base, fixed_now):
+        """零次查看日记应额外加权，避免长期沉底"""
+        diaries = [
+            {**sample_diary_base, 'id': 1, 'date': '2026-05-20 12:00:00', 'view_count': 0},
+            {**sample_diary_base, 'id': 2, 'date': '2026-05-20 12:00:00', 'view_count': 1},
+        ]
+        diary_details = [
+            {'diary': diary, **calculate_raw_weights(diary, fixed_now, 'random')}
+            for diary in diaries
+        ]
+
+        result = strategy.normalize(diary_details)
+        by_id = {item['diary']['id']: item for item in result}
+
+        assert by_id[1]['final_weight'] > by_id[2]['final_weight']
+        assert by_id[1]['final_weight'] == pytest.approx(
+            by_id[1]['time_weight_norm'] * 0.3
+            + by_id[1]['count_weight_norm']
+            + 0.5
+        )
 
     # =========================================================================
     # 单调性测试

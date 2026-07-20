@@ -61,13 +61,20 @@ class RandomSelectionNormalization(NormalizationStrategy):
             # 次数少的获得更高的分位数，使用 (n-1-i)/(n-1) 实现倒序
             item['count_weight_norm'] = (n - 1 - i) / (n - 1)
 
+        max_views = max(item['use_count'] for item in diary_details)
+
         # 计算最终权重
         for item in diary_details:
-            # 权重加权求和（给次数权重更高的系数，突出使用次数少的重要性）
-            alpha = 0.2  # 时间权重系数
+            # 零次查看是新内容入口，优先级高于普通冷却和低次数倾斜。
+            zero_view_bonus = 0.5 if item['use_count'] == 0 and max_views > 0 else 0.0
+            alpha = 0.3  # 时间权重系数
             beta = 1.0   # 次数权重系数 (beta > alpha，突出次数权重重要性)
 
-            final_weight = alpha * item['time_weight_norm'] + beta * item['count_weight_norm']
+            final_weight = (
+                alpha * item['time_weight_norm']
+                + beta * item['count_weight_norm']
+                + zero_view_bonus
+            )
             item['final_weight'] = final_weight
 
         return diary_details

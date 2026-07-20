@@ -14,6 +14,7 @@ class Diary:
     date: Optional[str] = None
     content: str = ""
     view_count: int = 0
+    last_viewed_at: Optional[str] = None
     tags: list = None  # 新增标签列表字段
     
     @classmethod
@@ -24,6 +25,7 @@ class Diary:
             date=data.get('date'),
             content=data.get('content', ''),
             view_count=data.get('view_count', 0),
+            last_viewed_at=data.get('last_viewed_at'),
             tags=data.get('tags', [])  # 新增标签处理
         )
     
@@ -34,5 +36,6 @@ class Diary:
             'date': self.date,
             'content': self.content,
             'view_count': self.view_count,
+            'last_viewed_at': self.last_viewed_at,
             'tags': self.tags  # 新增标签字段
         }

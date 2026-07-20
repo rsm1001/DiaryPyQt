@@ -66,6 +66,65 @@ class TestCalculateRawWeights:
         assert result['days_ago'] == 1
         assert result['time_weight_raw'] == pytest.approx(math.log(2))  # ≈ 0.693
 
+    def test_random_time_weight_uses_last_viewed_at_when_viewed(self, sample_diary_base):
+        """已查看日记按 last_viewed_at 计算冷却，不按创建时间"""
+        now = datetime(2026, 5, 21, 12, 0, 0)
+        diary = {
+            **sample_diary_base,
+            'date': '2020-01-01 12:00:00',
+            'last_viewed_at': '2026-05-20 12:00:00',
+            'view_count': 3,
+        }
+
+        result = calculate_raw_weights(diary, now, 'random')
+
+        assert result['days_ago'] == 1
+        assert result['time_weight_raw'] == pytest.approx(math.log(2))
+
+    def test_random_time_weight_zero_views_uses_created_at(self, sample_diary_base):
+        """零次查看日记按创建时间计算，忽略异常 last_viewed_at"""
+        now = datetime(2026, 5, 21, 12, 0, 0)
+        diary = {
+            **sample_diary_base,
+            'date': '2026-05-11 12:00:00',
+            'last_viewed_at': '2026-05-20 12:00:00',
+            'view_count': 0,
+        }
+
+        result = calculate_raw_weights(diary, now, 'random')
+
+        assert result['days_ago'] == 10
+        assert result['time_weight_raw'] == pytest.approx(math.log(11))
+
+    def test_random_time_weight_fallbacks_to_created_at_without_last_viewed(self, sample_diary_base):
+        """旧数据已查看但无 last_viewed_at 时回退创建时间"""
+        now = datetime(2026, 5, 21, 12, 0, 0)
+        diary = {
+            **sample_diary_base,
+            'date': '2026-05-18 12:00:00',
+            'view_count': 2,
+        }
+
+        result = calculate_raw_weights(diary, now, 'random')
+
+        assert result['days_ago'] == 3
+        assert result['time_weight_raw'] == pytest.approx(math.log(4))
+
+    def test_deletion_time_weight_still_uses_created_at(self, sample_diary_base):
+        """删除模式仍按创建时间判断久远程度"""
+        now = datetime(2026, 5, 21, 12, 0, 0)
+        diary = {
+            **sample_diary_base,
+            'date': '2026-05-11 12:00:00',
+            'last_viewed_at': '2026-05-20 12:00:00',
+            'view_count': 3,
+        }
+
+        result = calculate_raw_weights(diary, now, 'deletion')
+
+        assert result['days_ago'] == 10
+        assert result['time_weight_raw'] == pytest.approx(math.log(11))
+
     def test_time_weight_one_year_ago(self, sample_diary_base):
         """1年前: days_ago=365, time_weight_raw = log(365+1) = log(366) ≈ 5.9"""
         now = datetime(2026, 5, 21, 12, 0, 0)

@@ -68,9 +68,11 @@ class DiaryActions:
         if not diary:
             DiaryActionHelper.show_no_diary(self._window)
             return
+        new_count = self._window.controller.increment_view_count(diary.id)
+        if new_count is not None:
+            diary.view_count = new_count
         dialog = DiaryViewDialog(diary, self._window, readonly=True, tag_ids=tag_ids)
         dialog.exec()
-        self._window.controller.increment_view_count(diary.id)
         self._window.load_data()
         logger.info("随机查看日记: id=%s", diary.id)
 
