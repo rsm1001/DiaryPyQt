@@ -2,10 +2,7 @@
 FTS5全文搜索Schema初始化器 - 负责diaries_fts虚拟表及触发器
 """
 import logging
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import sqlite3
+import sqlite3
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +103,13 @@ class FTS5SchemaInitializer:
         logger.info("检测到旧版 FTS5 schema（单列），开始迁移到 3 列布局")
         # 删除旧 FTS5 表和旧触发器
         cursor.execute("DROP TABLE IF EXISTS diaries_fts")
-        for trig in ("diaries_fts_insert", "diaries_fts_update", "diaries_fts_delete"):
-            cursor.execute(f"DROP TRIGGER IF EXISTS {trig}")
+        # 触发器名为固定白名单，避免动态拼接 SQL 标识符。
+        for statement in (
+            "DROP TRIGGER IF EXISTS diaries_fts_insert",
+            "DROP TRIGGER IF EXISTS diaries_fts_update",
+            "DROP TRIGGER IF EXISTS diaries_fts_delete",
+        ):
+            cursor.execute(statement)
         # 重新建（3 列）
         cursor.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS diaries_fts USING fts5(

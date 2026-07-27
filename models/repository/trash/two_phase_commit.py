@@ -1,78 +1,36 @@
-"""
-垃圾桶两阶段提交（2PC）协调器
-
-三阶段协议：
-    1) precommit  : 在主库 + 垃圾桶库各写一行 pending（state='pending'）
-    2) apply      : 在主库做"真实写"（move=DELETE, restore=INSERT），state='applied'
-    3) commit     : 在垃圾桶库做"真实写"（move=INSERT, restore=DELETE），state='committed'
-
-崩溃恢复（recover_pending_ops，启动时调用一次）：
-    - state='committed'           -> 无事可做
-    - state='applied' (两库一致)  -> 走 phase 3 commit
-    - state='pending' (两库一致)  -> 删除两侧 pending（无副作用回滚）
-    - 状态不一致                 -> 以主库为准，垃圾桶库补齐后重放
-
-设计要点：
-- 主库侧通过 duck-typed MainDb 协议访问（不依赖具体类，便于单元测试 mock）
-- 所有 SQL 写入均显式 BEGIN/COMMIT/ROLLBACK，与外层 _transaction() 嵌套无副作用
-"""
-import json
+"""垃圾桶两阶段提交协调器。"""
 import logging
-import os
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Protocol, Tuple
+from typing import Any, Callable, Dict, Optional
 
 from .connection import TrashConnectionPool
+from .transactions.contracts import MainDbLike, PendingOperation, deserialize_payload, serialize_payload
+from .transactions.handlers import TrashOperationHandlerFactory
+from .transactions.pending_store import PendingOperationStore
+from .transactions.recovery import PendingOperationRecovery
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# 主库协议（duck-typed）
-# ---------------------------------------------------------------------------
-
-class MainDbLike(Protocol):
-    """主库需对外暴露的最小接口，供 2PC 协调器依赖注入。"""
-    @property
-    def db_path(self) -> str: ...
-    @property
-    def _db_lock(self) -> Any: ...
-    def _transaction(self): ...
-    def _execute(
-        self,
-        query: str,
-        params: Tuple = (),
-        fetch: Optional[str] = None,
-    ) -> Optional[Any]: ...
-    def compute_tokens(self, content: str) -> str: ...
-    def get_tag_by_id(self, tag_id: int) -> Optional[Dict[str, Any]]: ...
-    def get_tag_by_name(self, name: str) -> Optional[Dict[str, Any]]: ...
-    def add_tag(self, name: str) -> Optional[Dict[str, Any]]: ...
-    def get_tags_by_diary_id(self, diary_id: int) -> List[Dict[str, Any]]: ...
-    def get_diary_by_id(self, diary_id: int) -> Optional[Dict[str, Any]]: ...
-
-
-# ---------------------------------------------------------------------------
-# 2PC 协调器
-# ---------------------------------------------------------------------------
-
 class TrashTwoPhaseCommitCoordinator:
-    """垃圾桶 2PC 协调器（move / restore 跨库事务）"""
+    """编排 move / restore 的三阶段跨库事务。"""
 
-    VALID_OP_TYPES = ('move', 'restore')
+    VALID_OP_TYPES = TrashOperationHandlerFactory.VALID_OP_TYPES
 
     def __init__(
         self,
         connection_pool: TrashConnectionPool,
         main_db: MainDbLike,
     ):
-        self._pool = connection_pool
         self._main_db = main_db
-
-    # ------------------------------------------------------------------
-    # 公共入口
-    # ------------------------------------------------------------------
+        self._pending_store = PendingOperationStore(connection_pool, main_db)
+        self._handler_factory = TrashOperationHandlerFactory(main_db, self._now)
+        self._recovery = PendingOperationRecovery(
+            self._pending_store,
+            self.apply_to_main,
+            self.commit_to_trash,
+        )
 
     def precommit(
         self,
@@ -82,40 +40,19 @@ class TrashTwoPhaseCommitCoordinator:
         trash_id: Optional[int],
         payload: Dict[str, Any],
     ) -> None:
-        """阶段 1：在两库各写一行 pending（state=pending）"""
+        """阶段一：在主库和垃圾桶库创建 pending 操作记录。"""
         self._validate_op_type(op_type)
-        now = self._now()
-        payload_text = self._serialize_payload(payload)
-        params = (op_id, op_type, diary_id, trash_id, payload_text, now, now)
-
-        # 主库写 pending
-        with self._main_db._transaction() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO pending_trash_ops
-                (op_id, op_type, diary_id, trash_id, payload, state, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
-                """,
-                params,
-            )
-
-        # 垃圾桶库写 pending
-        with self._pool.lock:
-            trash_cursor = self._pool.connection.cursor()
-            try:
-                trash_cursor.execute("BEGIN")
-                trash_cursor.execute(
-                    """
-                    INSERT INTO pending_trash_ops
-                    (op_id, op_type, diary_id, trash_id, payload, state, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
-                    """,
-                    params,
-                )
-                self._pool.connection.commit()
-            except Exception:
-                self._pool.connection.rollback()
-                raise
+        timestamp = self._now()
+        operation = PendingOperation(
+            op_id=op_id,
+            op_type=op_type,
+            diary_id=diary_id,
+            trash_id=trash_id,
+            payload=payload,
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+        self._run_phase("precommit", operation, self._pending_store.create)
 
     def apply_to_main(
         self,
@@ -125,36 +62,25 @@ class TrashTwoPhaseCommitCoordinator:
         trash_id: Optional[int],
         payload: Dict[str, Any],
     ) -> None:
-        """阶段 2：在主库做"真实写"，并把两库 state 标 'applied'
+        """阶段二：执行主库真实写入并同步 applied 状态。"""
+        operation = self._operation_from_arguments(op_id, op_type, diary_id, trash_id, payload)
 
-        - move   : DELETE FROM diaries WHERE id = ?
-        - restore: INSERT INTO diaries (...) VALUES (...)
-        """
-        self._validate_op_type(op_type)
-        now = self._now()
-
-        with self._main_db._transaction() as cursor:
-            self._apply_main_write(cursor, op_type, diary_id, payload)
-            cursor.execute(
-                "UPDATE pending_trash_ops SET state = 'applied', updated_at = ? "
-                "WHERE op_id = ?",
-                (now, op_id),
+        def execute() -> None:
+            handler = self._handler_factory.create(operation.op_type)
+            updated_at = self._now()
+            self._pending_store.apply_main_phase(
+                lambda cursor: handler.apply_to_main(
+                    cursor,
+                    operation.diary_id,
+                    operation.trash_id,
+                    operation.payload,
+                ),
+                operation.op_id,
+                updated_at,
             )
+            self._pending_store.mark_trash_applied(operation.op_id, updated_at)
 
-        # 同步垃圾桶库的 state
-        with self._pool.lock:
-            trash_cursor = self._pool.connection.cursor()
-            try:
-                trash_cursor.execute("BEGIN")
-                trash_cursor.execute(
-                    "UPDATE pending_trash_ops SET state = 'applied', updated_at = ? "
-                    "WHERE op_id = ?",
-                    (now, op_id),
-                )
-                self._pool.connection.commit()
-            except Exception:
-                self._pool.connection.rollback()
-                raise
+        self._run_phase("apply", operation, execute)
 
     def commit_to_trash(
         self,
@@ -164,259 +90,65 @@ class TrashTwoPhaseCommitCoordinator:
         trash_id: Optional[int],
         payload: Dict[str, Any],
     ) -> None:
-        """阶段 3：在垃圾桶库做"真实写"，并把两库 state 标 'committed'
+        """阶段三：执行垃圾桶库真实写入并同步 committed 状态。"""
+        operation = self._operation_from_arguments(op_id, op_type, diary_id, trash_id, payload)
 
-        - move   : INSERT INTO trash_diaries/trash_tags
-        - restore: DELETE FROM trash_diaries WHERE id = ?
-        """
-        self._validate_op_type(op_type)
-        now = self._now()
-
-        with self._pool.lock:
-            trash_cursor = self._pool.connection.cursor()
-            try:
-                trash_cursor.execute("BEGIN")
-                self._apply_trash_write(trash_cursor, op_type, diary_id, trash_id, payload)
-                trash_cursor.execute(
-                    "UPDATE pending_trash_ops SET state = 'committed', updated_at = ? "
-                    "WHERE op_id = ?",
-                    (now, op_id),
-                )
-                self._pool.connection.commit()
-            except Exception:
-                self._pool.connection.rollback()
-                raise
-
-        # 同步主库的 state
-        with self._main_db._transaction() as cursor:
-            cursor.execute(
-                "UPDATE pending_trash_ops SET state = 'committed', updated_at = ? "
-                "WHERE op_id = ?",
-                (now, op_id),
+        def execute() -> None:
+            handler = self._handler_factory.create(operation.op_type)
+            updated_at = self._now()
+            self._pending_store.commit_trash_phase(
+                lambda cursor: handler.apply_to_trash(
+                    cursor,
+                    operation.diary_id,
+                    operation.trash_id,
+                    operation.payload,
+                ),
+                operation.op_id,
+                updated_at,
             )
+            self._pending_store.mark_main_committed(operation.op_id, updated_at)
 
-    # ------------------------------------------------------------------
-    # 启动恢复
-    # ------------------------------------------------------------------
+        self._run_phase("commit", operation, execute)
 
     def recover_pending_ops(self) -> int:
-        """扫描两库 pending_trash_ops，推进到稳定态
-
-        Returns:
-            恢复/清理的 op 数量
-        """
-        main_rows = self._read_main_pending()
-        trash_rows = self._read_trash_pending()
-
-        main_by_id = {r['op_id']: r for r in main_rows}
-        trash_by_id = {r['op_id']: r for r in trash_rows}
-        all_op_ids = set(main_by_id) | set(trash_by_id)
-
-        recovered = 0
-        for op_id in all_op_ids:
-            m = main_by_id.get(op_id)
-            t = trash_by_id.get(op_id)
-
-            # 主库已 committed -> 垃圾桶库可能漏写 phase 3
-            if m and m['state'] == 'committed' and (not t or t['state'] != 'committed'):
-                if self._replay_commit(m, op_id, "主库已 committed"):
-                    recovered += 1
-                continue
-
-            # 两库都 applied -> 重放阶段 3
-            if m and t and m['state'] == 'applied' and t['state'] == 'applied':
-                if self._replay_commit(m, op_id, "两库 applied"):
-                    recovered += 1
-                continue
-
-            # 两库都 pending -> 安全清理（无副作用）
-            if (not m or m['state'] == 'pending') and (not t or t['state'] == 'pending'):
-                self.cleanup_pending_op(op_id)
-                logger.info("2PC 恢复: %s 阶段1 pending 清理", op_id)
-                recovered += 1
-                continue
-
-            # 主库有行但垃圾桶库无行 -> 补齐后重放真实写（而非仅镜像状态）
-            if m and not t:
-                self._recover_missing_trash_row(m)
-                logger.info("2PC 恢复: %s 补齐垃圾桶库并重放真实写", op_id)
-                recovered += 1
-            # 垃圾桶库有行但主库无行 -> 补齐后重放真实写
-            elif t and not m:
-                if self._recover_missing_main_row(t):
-                    logger.info("2PC 恢复: %s 补齐主库并重放真实写", op_id)
-                    recovered += 1
-
+        """启动时恢复两库状态不一致的未完成操作。"""
+        try:
+            recovered = self._recovery.recover()
+        except Exception:
+            logger.error(
+                "垃圾桶 2PC 恢复流程失败",
+                extra={"extra_data": {"trace_id": "recovery", "component": "two_phase_commit"}},
+                exc_info=True,
+            )
+            raise
+        logger.info(
+            "垃圾桶 2PC 恢复完成",
+            extra={
+                "extra_data": {
+                    "trace_id": "recovery",
+                    "component": "two_phase_commit",
+                    "recovered_count": recovered,
+                }
+            },
+        )
         return recovered
 
-    def _recover_missing_trash_row(self, main_row: Dict[str, Any]) -> None:
-        """主库有 pending 行但垃圾桶库缺失：以主库为准重放真实写
-
-        - state='pending' : apply_to_main + commit_to_trash（两阶段都未执行）
-        - state='applied': commit_to_trash（仅 phase 3 漏执行）
-        """
-        payload = self._deserialize_payload(main_row['payload'])
-        op_id = main_row['op_id']
-        op_type = main_row['op_type']
-        diary_id = main_row['diary_id']
-        trash_id = main_row['trash_id']
-
-        if main_row['state'] == 'pending':
-            # phase 2 + phase 3 都未执行，先补 apply_to_main
-            self.apply_to_main(op_id, op_type, diary_id, trash_id, payload)
-        # phase 3 必然未执行（或 state 已 applied 但垃圾桶库无行），重放 phase 3
-        self.commit_to_trash(op_id, op_type, diary_id, trash_id, payload)
-
-    def _recover_missing_main_row(self, trash_row: Dict[str, Any]) -> bool:
-        """垃圾桶库有 pending 行但主库缺失：以垃圾桶库为准重放真实写
-
-        - state='pending' : apply_to_main（phase 2 漏执行），再视情况重放 phase 3
-        - state='applied': commit_to_trash（phase 3 漏执行，phase 2 已由垃圾桶库记录）
-
-        Returns:
-            True 表示已成功重放，False 表示无需处理（如已 committed）
-        """
-        payload = self._deserialize_payload(trash_row['payload'])
-        op_id = trash_row['op_id']
-        op_type = trash_row['op_type']
-        diary_id = trash_row['diary_id']
-        trash_id = trash_row['trash_id']
-
-        if trash_row['state'] == 'committed':
-            # 垃圾桶库已 committed，主库缺失行，仅需镜像到主库后无事可做
-            self._mirror_trash_row_to_main(trash_row)
-            return False
-
-        if trash_row['state'] in ('pending', 'applied'):
-            # phase 2 漏执行：apply_to_main 对 move(DELETE) 幂等，对 restore(INSERT)
-            # 若主库已有该日记会抛 UNIQUE 约束异常，不产生脏数据
-            self.apply_to_main(op_id, op_type, diary_id, trash_id, payload)
-        if trash_row['state'] == 'applied':
-            # phase 3 漏执行，仅重放 phase 3
-            self.commit_to_trash(op_id, op_type, diary_id, trash_id, payload)
-        return True
-
-    def _mirror_trash_row_to_main(self, trash_row: Dict[str, Any]) -> None:
-        """把垃圾桶库的 pending 行镜像到主库（INSERT OR REPLACE）"""
-        now = self._now()
-        with self._main_db._transaction() as cursor:
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO pending_trash_ops
-                (op_id, op_type, diary_id, trash_id, payload, state,
-                 created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, ''), ?)
-                """,
-                (
-                    trash_row['op_id'],
-                    trash_row['op_type'],
-                    trash_row['diary_id'],
-                    trash_row['trash_id'],
-                    trash_row['payload'],
-                    trash_row['state'],
-                    trash_row.get('created_at') or '',
-                    trash_row.get('updated_at') or now,
-                ),
-            )
-
-    # ------------------------------------------------------------------
-    # 跨库镜像 / 清理
-    # ------------------------------------------------------------------
-
     def cleanup_pending_op(self, op_id: str) -> None:
-        """删除两库指定 op_id 的 pending 行（任一失败不影响另一库）"""
-        try:
-            with self._main_db._transaction() as cursor:
-                cursor.execute(
-                    "DELETE FROM pending_trash_ops WHERE op_id = ?", (op_id,)
-                )
-        except Exception as exc:
-            logger.warning("清理主库 pending 失败 %s: %s", op_id, exc)
-        try:
-            with self._pool.lock:
-                trash_cursor = self._pool.connection.cursor()
-                trash_cursor.execute("BEGIN")
-                trash_cursor.execute(
-                    "DELETE FROM pending_trash_ops WHERE op_id = ?", (op_id,)
-                )
-                self._pool.connection.commit()
-        except Exception as exc:
-            logger.warning("清理垃圾桶库 pending 失败 %s: %s", op_id, exc)
+        """兼容既有调用：清理指定操作的两库 pending 记录。"""
+        self._pending_store.cleanup(op_id)
 
     def mirror_pending_to_trash(self, main_row: Dict[str, Any]) -> None:
-        """把主库的 pending 行镜像到垃圾桶库（INSERT OR REPLACE）
-
-        .. deprecated::
-            仅镜像 pending_trash_ops 元数据，不执行真实写，不应再用于崩溃恢复。
-            请使用 :meth:`_recover_missing_trash_row`（内部方法）。
-        """
-        now = self._now()
-        with self._pool.lock:
-            trash_cursor = self._pool.connection.cursor()
-            try:
-                trash_cursor.execute("BEGIN")
-                trash_cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO pending_trash_ops
-                    (op_id, op_type, diary_id, trash_id, payload, state,
-                     created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, ''), ?)
-                    """,
-                    (
-                        main_row['op_id'],
-                        main_row['op_type'],
-                        main_row['diary_id'],
-                        main_row['trash_id'],
-                        main_row['payload'],
-                        main_row['state'],
-                        main_row.get('created_at') or '',
-                        main_row.get('updated_at') or now,
-                    ),
-                )
-                self._pool.connection.commit()
-            except Exception:
-                self._pool.connection.rollback()
-                raise
+        """兼容既有调用：仅镜像 pending 元数据到垃圾桶库。"""
+        self._pending_store.mirror_to_trash(PendingOperation.from_row(main_row))
 
     def mirror_pending_to_main(self, trash_row: Dict[str, Any]) -> None:
-        """把垃圾桶库的 pending 行镜像到主库（INSERT OR REPLACE）"""
-        now = self._now()
-        with self._main_db._transaction() as cursor:
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO pending_trash_ops
-                (op_id, op_type, diary_id, trash_id, payload, state,
-                 created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, ''), ?)
-                """,
-                (
-                    trash_row['op_id'],
-                    trash_row['op_type'],
-                    trash_row['diary_id'],
-                    trash_row['trash_id'],
-                    trash_row['payload'],
-                    trash_row['state'],
-                    trash_row.get('created_at') or '',
-                    trash_row.get('updated_at') or now,
-                ),
-            )
-
-    # ------------------------------------------------------------------
-    # op_id 生成
-    # ------------------------------------------------------------------
+        """兼容既有调用：仅镜像 pending 元数据到主库。"""
+        self._pending_store.mirror_to_main(PendingOperation.from_row(trash_row))
 
     @staticmethod
     def new_op_id() -> str:
-        """生成全局唯一 op_id（uuid4 字符串）"""
+        """生成全局唯一的操作追踪 ID。"""
         return str(uuid.uuid4())
-
-    # ------------------------------------------------------------------
-    # 内部工具
-    # ------------------------------------------------------------------
-
-    def _validate_op_type(self, op_type: str) -> None:
-        if op_type not in self.VALID_OP_TYPES:
-            raise ValueError(f"未知 op_type: {op_type!r}")
 
     @staticmethod
     def _now() -> str:
@@ -424,151 +156,72 @@ class TrashTwoPhaseCommitCoordinator:
 
     @staticmethod
     def _serialize_payload(payload: Dict[str, Any]) -> str:
-        return json.dumps(payload, ensure_ascii=False, default=str)
+        """兼容既有内部调用的载荷序列化方法。"""
+        return serialize_payload(payload)
 
-    def _apply_main_write(
+    @staticmethod
+    def _deserialize_payload(raw: Any) -> Dict[str, Any]:
+        """兼容既有内部调用的载荷反序列化方法。"""
+        return deserialize_payload(raw)
+
+    def _validate_op_type(self, op_type: str) -> None:
+        if op_type not in self.VALID_OP_TYPES:
+            raise ValueError(f"未知 op_type: {op_type!r}")
+
+    def _operation_from_arguments(
         self,
-        cursor,
-        op_type: str,
-        diary_id: Optional[int],
-        payload: Dict[str, Any],
-    ) -> None:
-        """阶段 2 真实写（主库）"""
-        if op_type == 'move':
-            cursor.execute("DELETE FROM diaries WHERE id = ?", (diary_id,))
-            return
-
-        if op_type == 'restore':
-            cursor.execute(
-                """
-                INSERT INTO diaries
-                (date, content, view_count, last_viewed_at, tokens, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    payload['date'],
-                    payload['content'],
-                    payload.get('view_count', 0),
-                    payload.get('last_viewed_at'),
-                    payload.get('tokens', ''),
-                    payload.get('updated_at'),
-                ),
-            )
-            for tag in payload.get('tags', []):
-                tag_id = self._resolve_tag_id(tag)
-                if tag_id:
-                    cursor.execute(
-                        "INSERT OR IGNORE INTO diary_tags (diary_id, tag_id) "
-                        "VALUES (?, ?)",
-                        (cursor.lastrowid, tag_id),
-                    )
-            return
-
-    def _apply_trash_write(
-        self,
-        cursor,
+        op_id: str,
         op_type: str,
         diary_id: Optional[int],
         trash_id: Optional[int],
         payload: Dict[str, Any],
-    ) -> None:
-        """阶段 3 真实写（垃圾桶库）"""
-        if op_type == 'move':
-            deleted_at = self._now()
-            cursor.execute(
-                """
-                INSERT INTO trash_diaries
-                (original_id, date, deleted_at, content, view_count,
-                 last_viewed_at, source_db_path, tokens, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    diary_id,
-                    payload['date'],
-                    deleted_at,
-                    payload['content'],
-                    payload.get('view_count', 0),
-                    payload.get('last_viewed_at'),
-                    os.path.abspath(self._main_db.db_path),
-                    payload.get('tokens', ''),
-                    payload.get('updated_at'),
-                ),
-            )
-            new_trash_id = cursor.lastrowid
-            for tag in payload.get('tags', []):
-                cursor.execute(
-                    "INSERT INTO trash_tags "
-                    "(trash_diary_id, name, original_tag_id) VALUES (?, ?, ?)",
-                    (new_trash_id, tag['name'], tag.get('original_tag_id')),
-                )
-            return
+    ) -> PendingOperation:
+        self._validate_op_type(op_type)
+        return PendingOperation(op_id, op_type, diary_id, trash_id, payload)
 
-        if op_type == 'restore':
-            cursor.execute(
-                "DELETE FROM trash_diaries WHERE id = ?", (trash_id,)
-            )
-            return
-
-    def _resolve_tag_id(self, tag: Dict[str, Any]) -> Optional[int]:
-        """恢复时解析 tag_id：优先按 original_tag_id，再按 name"""
-        if tag.get('original_tag_id'):
-            existing = self._main_db.get_tag_by_id(tag['original_tag_id'])
-            if existing:
-                return existing['id']
-        if tag.get('name'):
-            existing_by_name = self._main_db.get_tag_by_name(tag['name'])
-            if existing_by_name:
-                return existing_by_name['id']
-            new_tag = self._main_db.add_tag(tag['name'])
-            if new_tag:
-                return new_tag['id']
-        return None
-
-    def _replay_commit(
+    def _run_phase(
         self,
-        row: Dict[str, Any],
-        op_id: str,
-        reason: str,
-    ) -> bool:
-        payload = self._deserialize_payload(row['payload'])
+        phase: str,
+        operation: PendingOperation,
+        callback: Callable[[], None] | Callable[[PendingOperation], None],
+    ) -> None:
+        self._log_phase("开始", phase, operation)
         try:
-            self.commit_to_trash(
-                op_id, row['op_type'], row['diary_id'], row['trash_id'], payload,
+            if phase == "precommit":
+                callback(operation)
+            else:
+                callback()
+        except Exception:
+            logger.error(
+                "垃圾桶 2PC 阶段失败",
+                extra={
+                    "extra_data": {
+                        "trace_id": operation.op_id,
+                        "phase": phase,
+                        "op_type": operation.op_type,
+                        "component": "two_phase_commit",
+                    }
+                },
+                exc_info=True,
             )
-            logger.info("2PC 恢复: %s 阶段3 重放 (%s)", op_id, reason)
-            return True
-        except Exception as exc:
-            logger.error("2PC 恢复失败 %s: %s", op_id, exc)
-            return False
+            raise
+        self._log_phase("完成", phase, operation)
 
     @staticmethod
-    def _deserialize_payload(raw: Any) -> Dict[str, Any]:
-        if isinstance(raw, str):
-            return json.loads(raw)
-        return raw
+    def _log_phase(action: str, phase: str, operation: PendingOperation) -> None:
+        logger.info(
+            f"垃圾桶 2PC 阶段{action}",
+            extra={
+                "extra_data": {
+                    "trace_id": operation.op_id,
+                    "phase": phase,
+                    "op_type": operation.op_type,
+                    "diary_id": operation.diary_id,
+                    "trash_id": operation.trash_id,
+                    "component": "two_phase_commit",
+                }
+            },
+        )
 
-    def _read_main_pending(self) -> List[Dict[str, Any]]:
-        try:
-            return self._main_db._execute(
-                "SELECT op_id, op_type, diary_id, trash_id, payload, state, "
-                "created_at, updated_at "
-                "FROM pending_trash_ops",
-                fetch='all',
-            ) or []
-        except Exception as exc:
-            logger.warning("读取主库 pending_trash_ops 失败: %s", exc)
-            return []
 
-    def _read_trash_pending(self) -> List[Dict[str, Any]]:
-        try:
-            with self._pool.lock:
-                cursor = self._pool.connection.cursor()
-                cursor.execute(
-                    "SELECT op_id, op_type, diary_id, trash_id, payload, state, "
-                    "created_at, updated_at "
-                    "FROM pending_trash_ops"
-                )
-                return [dict(r) for r in cursor.fetchall()]
-        except Exception as exc:
-            logger.warning("读取垃圾桶库 pending_trash_ops 失败: %s", exc)
-            return []
+__all__ = ["MainDbLike", "TrashTwoPhaseCommitCoordinator"]
