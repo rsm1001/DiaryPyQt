@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QListWidget,
                              QListWidgetItem, QPushButton, QLabel, QCheckBox,
                              QGroupBox, QDialogButtonBox)
 from PyQt6.QtCore import Qt
-from views.components.column_config_manager import ColumnConfigManager
+from views.components.configuration.column_config_manager import ColumnConfigManager
 
 from i18n import _
 

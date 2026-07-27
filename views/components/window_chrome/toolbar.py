@@ -143,7 +143,7 @@ class MainToolBar:
 
     def _build_random_filter_content(self, dialog):
         """构建随机查看筛选弹窗内容"""
-        from views.components.tag_filter_panel import TagFilterPanel
+        from views.components.filters.tag_filter_panel import TagFilterPanel
 
         # 清除旧内容
         old_layout = dialog.layout()

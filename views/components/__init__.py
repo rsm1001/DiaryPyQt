@@ -1,12 +1,11 @@
-"""
-UI组件模块
-"""
-from .toolbar import MainToolBar
-from .menu_bar import MainMenuBar
-from .detail_panel import DetailPanel
-from .status_bar_manager import StatusBarManager
-from .table_view_manager import TableViewManager
-from .context_menu_builder import ContextMenuBuilder, ContextMenuFactory
+﻿"""UI 组件模块。"""
+
+from .menus.context_menu_builder import ContextMenuBuilder, ContextMenuFactory
+from .panels.detail_panel import DetailPanel
+from .tables.table_view_manager import TableViewManager
+from .window_chrome.menu_bar import MainMenuBar
+from .window_chrome.status_bar_manager import StatusBarManager
+from .window_chrome.toolbar import MainToolBar
 
 __all__ = [
     'MainToolBar',

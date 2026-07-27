@@ -16,15 +16,15 @@ from i18n import _
 from controllers.enhanced_diary_controller import EnhancedDiaryController
 from models.table_models.diary_table_model import DiaryTableModel
 from views.actions import ActionFactory
-from views.components.calendar_panel import CalendarPanelFactory
-from views.components.column_config_manager import ColumnConfigManager
-from views.components.context_menu_builder import ContextMenuBuilder
-from views.components.detail_panel import DetailPanel
+from views.components.calendar.calendar_panel import CalendarPanelFactory
+from views.components.configuration.column_config_manager import ColumnConfigManager
+from views.components.menus.context_menu_builder import ContextMenuBuilder
+from views.components.panels.detail_panel import DetailPanel
 from views.components.heatmap import HeatmapPanelFactory
-from views.components.menu_bar import MainMenuBar
-from views.components.status_bar_manager import StatusBarManager
-from views.components.table_view_manager import TableViewManager
-from views.components.toolbar import MainToolBar
+from views.components.window_chrome.menu_bar import MainMenuBar
+from views.components.window_chrome.status_bar_manager import StatusBarManager
+from views.components.tables.table_view_manager import TableViewManager
+from views.components.window_chrome.toolbar import MainToolBar
 from views.delegates.tag_delegate import TagDelegate
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class MainWindow(QMainWindow):
         self.column_config_manager = ColumnConfigManager()
 
         # 初始化随机查看筛选管理器
-        from views.components.random_view_filter_manager import RandomViewFilterManager
+        from views.components.filters.random_view_filter_manager import RandomViewFilterManager
         self.random_filter_manager = RandomViewFilterManager()
 
         # 初始化组件管理器
@@ -204,7 +204,7 @@ class MainWindow(QMainWindow):
         count = self.table_manager.get_selected_count()
         if count == 0:
             return
-        from views.components.context_menu_builder import ContextMenuFactory
+        from views.components.menus.context_menu_builder import ContextMenuFactory
 
         handlers = {
             "view": self.actions.diary.view_selected,
