@@ -25,6 +25,7 @@ MEMORY.md
 /.claude/settings.local.json
 
 # Python
+.venv/
 __pycache__/
 *.py[cod]
 *$py.class
