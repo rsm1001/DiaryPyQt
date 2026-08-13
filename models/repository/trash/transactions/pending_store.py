@@ -1,6 +1,6 @@
 """pending_trash_ops 的跨库持久化适配器。"""
 import logging
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Tuple
 
 from ..connection import TrashConnectionPool
 from .contracts import MainDbLike, PendingOperation
@@ -130,7 +130,7 @@ class PendingOperationStore:
             (state, updated_at, op_id),
         )
 
-    def _write_trash(self, query: str, params: tuple[Any, ...] = ()) -> None:
+    def _write_trash(self, query: str, params: Tuple[Any, ...] = ()) -> None:
         """在锁和独立事务中写垃圾桶库，失败时回滚并向上抛出。"""
         with self._pool.lock:
             with self._pool.transaction() as cursor:

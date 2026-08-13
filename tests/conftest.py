@@ -4,6 +4,7 @@ pytest配置和共享fixtures
 """
 import sys
 import os
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from unittest.mock import MagicMock

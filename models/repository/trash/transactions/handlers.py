@@ -150,7 +150,7 @@ class TrashOperationHandlerFactory:
 
     VALID_OP_TYPES = ('move', 'restore')
 
-    def __init__(self, main_db: MainDbLike, clock: Callable[[], str] | None = None):
+    def __init__(self, main_db: MainDbLike, clock: Optional[Callable[[], str]] = None):
         timestamp_provider = clock or self._now
         self._handlers: Dict[str, TrashOperationHandler] = {
             'move': MoveToTrashHandler(main_db, timestamp_provider),

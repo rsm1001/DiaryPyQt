@@ -1,0 +1,68 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.12"]
+
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade "pip<25" "setuptools<76" wheel
+          python -m pip install -r requirements.txt
+
+      - name: Verify test collection
+        run: python -m pytest --collect-only -q
+
+      - name: Run tests with coverage
+        run: >-
+          python -m pytest
+          --cov=models
+          --cov=services
+          --cov-report=term-missing
+          --cov-report=xml
+          --cov-report=html
+          --cov-fail-under=70
+          --junitxml=pytest-junit.xml
+
+      - name: Verify critical data-path coverage
+        run: >-
+          python -m pytest
+          --cov=models.repository.trash
+          --cov=models.mixins._connection_mixin
+          --cov=models.enhanced_database
+          --cov-fail-under=80
+          -q
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-python-${{ matrix.python-version }}
+          path: |
+            coverage.xml
+            htmlcov/
+            pytest-junit.xml

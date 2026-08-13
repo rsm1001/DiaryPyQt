@@ -9,6 +9,7 @@ from datetime import datetime
 import pytest
 
 from models.enhanced_database import EnhancedDatabaseManager
+from models.mixins._connection_mixin import ConnectionMixin
 
 @pytest.fixture
 def temp_db_manager(temp_db_path):
@@ -34,13 +35,46 @@ class TestConnectionMixin:
         assert isinstance(conn, sqlite3.Connection)
 
     def test_acquire_read_connection(self, temp_db_manager):
-        """测试从连接池获取读连接"""
+        """??????????????????????"""
+        initial_size = temp_db_manager._read_pool.qsize()
         with temp_db_manager._acquire_read_connection() as (conn, lock):
             assert isinstance(conn, sqlite3.Connection)
-            # Queue 无下标访问；从池中取一条样本验证 lock 类型
-            sample_conn, sample_lock = temp_db_manager._read_pool.get_nowait()
-            temp_db_manager._read_pool.put_nowait((sample_conn, sample_lock))
-            assert isinstance(lock, type(sample_lock))
+            assert hasattr(lock, "acquire")
+            assert temp_db_manager._read_pool.qsize() == initial_size - 1
+        assert temp_db_manager._read_pool.qsize() == initial_size
+
+    def test_read_connection_is_replaced_after_sqlite_error(self, temp_db_manager):
+        """????? SQLite ???????????????"""
+        before = {id(conn) for conn, _ in list(temp_db_manager._read_pool.queue)}
+        with pytest.raises(sqlite3.Error):
+            with temp_db_manager._acquire_read_connection() as (conn, _):
+                conn.execute("SELECT * FROM table_that_does_not_exist")
+        after = {id(conn) for conn, _ in list(temp_db_manager._read_pool.queue)}
+        assert len(after) == temp_db_manager._pool_size
+        assert before != after
+
+    def test_transaction_rolls_back_on_error(self, temp_db_manager):
+        """??????????????????"""
+        with pytest.raises(sqlite3.IntegrityError):
+            with temp_db_manager._transaction() as cursor:
+                cursor.execute(
+                    "INSERT INTO diaries (date, content) VALUES (?, ?)",
+                    ("2026-05-21 10:00:00", "????"),
+                )
+                cursor.execute(
+                    "INSERT INTO diaries (date, content) VALUES (?, ?)",
+                    (None, None),
+                )
+        assert temp_db_manager._execute(
+            "SELECT * FROM diaries WHERE content = ?", ("????",), fetch="one"
+        ) is None
+
+    def test_query_routing_classifies_read_and_write_sql(self):
+        """??????? SELECT/PRAGMA??????????"""
+        assert ConnectionMixin._is_read_query(" SELECT 1") is True
+        assert ConnectionMixin._is_read_query("pragma user_version") is True
+        assert ConnectionMixin._is_read_query("WITH rows AS (SELECT 1) SELECT * FROM rows") is False
+        assert ConnectionMixin._is_read_query("UPDATE diaries SET content = ?") is False
 
     def test_execute_insert_and_select(self, temp_db_manager):
         """测试基本的INSERT和SELECT操作"""

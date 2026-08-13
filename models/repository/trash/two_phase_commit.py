@@ -2,7 +2,7 @@
 import logging
 import uuid
 from datetime import datetime
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Union
 
 from .connection import TrashConnectionPool
 from .transactions.contracts import MainDbLike, PendingOperation, deserialize_payload, serialize_payload
@@ -183,7 +183,7 @@ class TrashTwoPhaseCommitCoordinator:
         self,
         phase: str,
         operation: PendingOperation,
-        callback: Callable[[], None] | Callable[[PendingOperation], None],
+        callback: Union[Callable[[], None], Callable[[PendingOperation], None]],
     ) -> None:
         self._log_phase("开始", phase, operation)
         try:
