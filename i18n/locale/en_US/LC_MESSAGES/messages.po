@@ -205,6 +205,16 @@ msgstr "Cancel"
 msgid "查看日记"
 msgstr "View Diary"
 
+msgid "更正"
+msgstr "Correct"
+msgid "日记内容不能为空！"
+msgstr "Diary content cannot be empty!"
+msgid "日记更新失败！"
+msgstr "Failed to update diary!"
+msgid "日记更新成功！"
+msgstr "Diary updated successfully!"
+
+
 msgid "保存标签"
 msgstr "Save Tags"
 

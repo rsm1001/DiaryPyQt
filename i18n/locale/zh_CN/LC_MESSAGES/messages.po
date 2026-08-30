@@ -205,6 +205,16 @@ msgstr "取消"
 msgid "查看日记"
 msgstr "查看日记"
 
+msgid "更正"
+msgstr "更正"
+msgid "日记内容不能为空！"
+msgstr "日记内容不能为空！"
+msgid "日记更新失败！"
+msgstr "日记更新失败！"
+msgid "日记更新成功！"
+msgstr "日记更新成功！"
+
+
 msgid "保存标签"
 msgstr "保存标签"
 
