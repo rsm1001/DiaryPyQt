@@ -1,11 +1,9 @@
 """
 日记基础操作模块 - 从EnhancedDatabaseManager解耦而来
 """
-import sqlite3
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import logging
-from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
@@ -14,30 +12,77 @@ class DiaryOperationsMixin:
     """日记基础操作混入类"""
 
     def add_diary(self, content: str) -> Optional[Dict[str, Any]]:
-        """
-        添加新日记
+        """添加新日记（不带标签，委托给原子创建方法）。"""
+        return self.add_diary_with_tags(content, [])
 
-        Args:
-            content: 日记内容
+    @staticmethod
+    def _missing_tag_id(cursor, tag_ids: List[int]) -> Optional[int]:
+        """返回第一个不存在的标签ID；全部存在时返回 None。"""
+        for tag_id in tag_ids:
+            if cursor.execute(
+                "SELECT id FROM tags WHERE id = ?", (tag_id,)
+            ).fetchone() is None:
+                return tag_id
+        return None
 
-        Returns:
-            新创建的日记字典
-        """
+    @staticmethod
+    def _bind_tags(cursor, diary_id: int, tag_ids: List[int]) -> None:
+        """在当前事务内为日记写入标签绑定。"""
+        for tag_id in tag_ids:
+            cursor.execute(
+                "INSERT INTO diary_tags (diary_id, tag_id) VALUES (?, ?)",
+                (diary_id, tag_id),
+            )
+
+    def add_diary_with_tags(self, content: str, tag_ids: List[int]) -> Optional[Dict[str, Any]]:
+        """原子创建日记并绑定标签；标签不存在时不写入任何数据，返回 None。"""
         if not content or not content.strip():
             logger.warning("尝试添加空日记内容")
             return None
-
+        unique_tag_ids = list(dict.fromkeys(tag_ids or []))
         date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         stripped = content.strip()
         tokens = self.compute_tokens(stripped)
-        # updated_at 初值与 date 相同（创建即"最新"），后续编辑才推进
-        query = "INSERT INTO diaries (date, content, tokens, updated_at) VALUES (?, ?, ?, ?)"
-        diary_id = self._execute(query, (date, stripped, tokens, date))
+        with self._lock:
+            with self._transaction() as cursor:
+                missing = self._missing_tag_id(cursor, unique_tag_ids)
+                if missing is not None:
+                    logger.warning("新增日记失败，标签不存在: %s", missing)
+                    return None
+                cursor.execute(
+                    "INSERT INTO diaries (date, content, tokens, updated_at) VALUES (?, ?, ?, ?)",
+                    (date, stripped, tokens, date),
+                )
+                diary_id = cursor.lastrowid
+                self._bind_tags(cursor, diary_id, unique_tag_ids)
+        if not diary_id:
+            return None
+        logger.info("新增日记成功，ID: %s", diary_id)
+        return self.get_diary_by_id(diary_id)
 
-        if diary_id:
-            logger.info(f"新增日记成功，ID: {diary_id}")
-            return self.get_diary_by_id(diary_id)
-        return None
+    def update_diary_with_tags(self, diary_id: int, content: str, tag_ids: List[int]) -> bool:
+        """原子更新日记内容并替换标签；标签不存在时不写入任何数据，返回 False。"""
+        if not content or not content.strip():
+            return False
+        unique_tag_ids = list(dict.fromkeys(tag_ids or []))
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        stripped = content.strip()
+        tokens = self.compute_tokens(stripped)
+        with self._lock:
+            with self._transaction() as cursor:
+                missing = self._missing_tag_id(cursor, unique_tag_ids)
+                if missing is not None:
+                    logger.warning("更新日记失败，标签不存在: %s", missing)
+                    return False
+                cursor.execute(
+                    "UPDATE diaries SET content = ?, tokens = ?, updated_at = ? WHERE id = ?",
+                    (stripped, tokens, now, diary_id),
+                )
+                if cursor.rowcount == 0:
+                    return False
+                cursor.execute("DELETE FROM diary_tags WHERE diary_id = ?", (diary_id,))
+                self._bind_tags(cursor, diary_id, unique_tag_ids)
+        return True
 
     def get_diary_by_id(self, diary_id: int) -> Optional[Dict[str, Any]]:
         """

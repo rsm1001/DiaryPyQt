@@ -32,6 +32,11 @@ class TrashTwoPhaseCommitCoordinator:
             self.commit_to_trash,
         )
 
+    @property
+    def pending_store(self) -> PendingOperationStore:
+        """pending 操作存储（供仓储层健康检查等只读访问）"""
+        return self._pending_store
+
     def precommit(
         self,
         op_id: str,

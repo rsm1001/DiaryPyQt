@@ -74,6 +74,16 @@ class TrashRepository:
     # 生命周期
     # ------------------------------------------------------------------
 
+    @property
+    def db_path(self) -> str:
+        """垃圾桶数据库文件路径（与连接池实际打开的文件同源）"""
+        return self._pool.db_path
+
+    def pending_op_counts(self) -> Dict[str, int]:
+        """两库 pending_trash_ops 数量（供健康检查等外部只读使用）"""
+        store = self._two_pc.pending_store
+        return {'main': len(store.read_main()), 'trash': len(store.read_trash())}
+
     def init_schema(self) -> None:
         """初始化垃圾桶数据库 schema（建表 + FTS5 + PRAGMA）"""
         self._schema.initialize()

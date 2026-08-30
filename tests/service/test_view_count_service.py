@@ -35,8 +35,9 @@ class TestViewCountService:
 
     def test_increment_view_count_returns_new_count(self, service, mock_db_manager):
         """返回值应为新的查看次数"""
-        # fetchone 顺序: (1) UPDATE RETURNING, (2) SELECT COUNT today, (3) SELECT value max
+        # fetchone 顺序: (1) 存在性检查, (2) UPDATE RETURNING, (3) SELECT COUNT today, (4) SELECT value max
         cursor = self._make_mock_cursor([
+            {'id': 1},          # SELECT id FROM diaries 存在性检查
             {'view_count': 6},  # UPDATE ... RETURNING
             {'count': 5},       # SELECT COUNT(*) today
             {'value': 3},       # SELECT value FROM app_config
@@ -54,6 +55,7 @@ class TestViewCountService:
         """当日查看数超过历史最佳时应更新"""
         # 5 > 3 -> 触发 app_config 更新
         cursor = self._make_mock_cursor([
+            {'id': 1},
             {'view_count': 6},
             {'count': 10},
             {'value': 3},
@@ -74,6 +76,7 @@ class TestViewCountService:
         """当日查看数未超过历史最佳时不应更新"""
         # 2 <= 3 -> 不应执行 INSERT OR REPLACE
         cursor = self._make_mock_cursor([
+            {'id': 1},
             {'view_count': 6},
             {'count': 2},
             {'value': 3},

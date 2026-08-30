@@ -44,6 +44,11 @@ class ViewCountService:
         # 用 _transaction 一次包住三步；崩溃时全部回滚
         try:
             with self.db_manager._transaction() as cursor:
+                # 先确认日记存在，避免为已删除的日记留下孤儿 view_log
+                cursor.execute("SELECT id FROM diaries WHERE id = ?", (diary_id,))
+                if cursor.fetchone() is None:
+                    logger.warning("查看失败，日记不存在: %s", diary_id)
+                    return None
                 # 1) 记录查看日志
                 cursor.execute(
                     "INSERT INTO view_log (diary_id, viewed_at) VALUES (?, ?)",

@@ -52,12 +52,8 @@ class DiaryActions:
         content = dialog.get_content()
         if not content.strip():
             return
-        diary = self._window.controller.add_diary(content)
         selected_tag_ids = dialog.get_selected_tag_ids()
-        if diary and selected_tag_ids:
-            self._window.controller.assign_tags_to_diary(
-                diary.id, selected_tag_ids
-            )
+        diary = self._window.controller.add_diary(content, selected_tag_ids)
         self._window.load_data()
         logger.info("新建日记完成")
 
@@ -126,9 +122,8 @@ class DiaryActions:
         content = dialog.get_content()
         if not content.strip():
             return
-        self._window.controller.update_diary(diary.id, content)
-        self._window.controller.assign_tags_to_diary(
-            diary.id, dialog.get_selected_tag_ids()
+        self._window.controller.update_diary(
+            diary.id, content, dialog.get_selected_tag_ids()
         )
         self._window.load_data()
 

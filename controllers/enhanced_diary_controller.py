@@ -13,9 +13,9 @@ class EnhancedDiaryController:
     def __init__(self, db_path: str = None):
         self.db_manager = get_enhanced_db_manager(db_path)
     
-    def add_diary(self, content: str) -> Optional[Diary]:
-        """添加新日记"""
-        diary_dict = self.db_manager.add_diary(content)
+    def add_diary(self, content: str, tag_ids: Optional[List[int]] = None) -> Optional[Diary]:
+        """添加新日记；tag_ids 非空时在同一事务内绑定标签"""
+        diary_dict = self.db_manager.add_diary_with_tags(content, tag_ids or [])
         if diary_dict:
             return Diary.from_dict(diary_dict)
         return None
@@ -27,9 +27,12 @@ class EnhancedDiaryController:
             return Diary.from_dict(diary_dict)
         return None
     
-    def update_diary(self, diary_id: int, new_content: str) -> bool:
-        """更新日记内容"""
-        return self.db_manager.update_diary(diary_id, new_content)
+    def update_diary(self, diary_id: int, new_content: str,
+                     tag_ids: Optional[List[int]] = None) -> bool:
+        """更新日记内容；tag_ids 为 None 时不改动标签，否则原子替换为给定集合"""
+        if tag_ids is None:
+            return self.db_manager.update_diary(diary_id, new_content)
+        return self.db_manager.update_diary_with_tags(diary_id, new_content, tag_ids)
     
     def delete_diary_by_id(self, diary_id: int) -> Optional[Diary]:
         """根据ID删除日记"""

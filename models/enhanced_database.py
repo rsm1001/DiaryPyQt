@@ -74,6 +74,7 @@ class EnhancedDatabaseManager(
         self._db_path = db_path
         self._db_lock = threading.RLock()
         self._fts5_available = True  # 默认值，实际值在_init_database中设置
+        self.recovery_error = None
 
         # 初始化读写分离连接池
         self._init_pool()
@@ -101,7 +102,8 @@ class EnhancedDatabaseManager(
             if recovered:
                 logger.info(f"启动恢复：处理 {recovered} 个未完成的跨库操作")
         except Exception as exc:
-            logger.error(f"启动恢复失败（已忽略，不影响本次启动）: {exc}")
+            self.recovery_error = str(exc)
+            logger.error("启动恢复失败，应用进入需要检查状态: %s", exc, exc_info=True)
 
         # 显式初始化各服务（不再依赖 __getattr__ 兜底）
         self._init_services()
@@ -266,10 +268,26 @@ class EnhancedDatabaseManager(
     # 生命周期
     # -------------------------------------------------------------------------
 
+    def get_database_health(self) -> Dict[str, Any]:
+        """返回数据库完整性和跨库恢复状态。"""
+        pending = self._ensure_trash_repository().pending_op_counts()
+        return {
+            'integrity_ok': self.validate_database_integrity(),
+            'recovery_ok': self.recovery_error is None,
+            'recovery_error': self.recovery_error,
+            'pending_main': pending['main'],
+            'pending_trash': pending['trash'],
+        }
+
     def close(self):
-        """关闭数据库连接池"""
+        """关闭数据库连接池，并清空服务引用。"""
         self._close_pool()
         self._close_trash_pool()
+        self._services_initialized = False
+        self.migration_backup_manager = None
+        self.statistics_service = None
+        self.view_count_service = None
+        self.diary_content_service = None
         logger.info("数据库连接池已关闭")
 
 

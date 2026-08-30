@@ -265,8 +265,10 @@ class StatisticsService:
         
         return {
             'yesterday_total_views': yesterday_total,
+            'all_time_max_daily_views': all_time_max_daily_views,
+            # 兼容旧字段名：历史最佳单日查看数，取值与 all_time_max_daily_views 相同
             'all_time_max_single_views': all_time_max_daily_views,
-            'all_time_max_date': max_result['updated_at'] if max_result else None
+            'all_time_max_date': max_result['updated_at'] if max_result else None,
         }
     
     def get_today_total_views(self) -> int:

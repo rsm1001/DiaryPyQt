@@ -111,7 +111,7 @@ class DatabaseQueryMixin:
             params = tuple(tag_ids)
             candidate_rows = self._execute(query, params, fetch='all') or []
             if limit is not None and len(candidate_rows) > limit:
-                # 按日期倒序后取前limit条（与原逻辑一致：取最新的）
+                # 按日期倒序后取前 limit 条（与无标签分支一致：候选池限定为最新的 N 篇）
                 candidate_rows = candidate_rows[:limit]
             diaries = [dict(row) for row in candidate_rows]
         else:
