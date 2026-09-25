@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch|Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "STYLE_GUARD_PROJECT_DIR=\"$(git rev-parse --show-toplevel)\" python3 \"$(git rev-parse --show-toplevel)/.claude/hooks/style_guard.py\"",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\.codex\\hooks\\run-style-guard.ps1",
+            "timeout": 5,
+            "statusMessage": "Checking project code style"
+          }
+        ]
+      }
+    ]
+  }
+}
