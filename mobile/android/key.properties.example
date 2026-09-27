@@ -1,0 +1,5 @@
+﻿# 本地正式签名配置示例；不要提交真实 key.properties。
+storePassword=REPLACE_WITH_LOCAL_PASSWORD
+keyPassword=REPLACE_WITH_LOCAL_PASSWORD
+keyAlias=diary_release
+storeFile=diary-release.jks

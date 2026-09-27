@@ -1,98 +1,32 @@
-# 日记管理系统 - PyQt版本
+﻿# DiaryPyQt 日记系统
 
-这是一个使用PyQt6开发的现代化日记管理系统，从原有的Tkinter版本迁移而来，保留了所有原有功能并提供了更好的用户体验。
+此仓库包含现有 PyQt 桌面项目、独立的日记 API 和 Android App。桌面项目已整体迁入 `desktop/`，不是另起一套 PyQt 程序。
 
-## 功能特性
-
-- **现代化UI**: 使用PyQt6框架，提供流畅的用户界面
-- **数据管理**: 完整的日记增删改查功能
-- **智能排序**: 按查看次数和日期排序
-- **随机查看**: 从最少查看的日记中随机选择
-- **全文搜索**: 支持关键词搜索日记内容
-- **统计功能**: 提供详细的统计信息
-- **主题切换**: 支持亮色/暗色主题
-- **独立数据**: 项目包含独立的数据库副本
-
-## 安装依赖
-
-```bash
-pip install -r requirements.txt
-```
-
-## 运行应用
-
-```bash
-python main.py
-```
-
-应用程序将使用 `data/diary.db` 数据库文件。
-
-## 文件结构
-
-```
+```text
 DiaryPyQt/
-├── data/                           # 数据目录
-│   └── diary.db                    # SQLite 数据库
-├── main.py                         # 主程序入口
-├── requirements.txt                # 依赖包列表
-├── launch_diary_app.bat            # Windows 启动脚本
-├── README.md                       # 说明文档
-├── config/                         # 配置模块
-│   └── config.py                   # 应用配置、数据库路径
-├── controllers/                    # 控制器层
-│   └── enhanced_diary_controller.py # 日记业务控制器
-├── models/                         # 数据模型层
-│   ├── enhanced_database.py        # 增强数据库管理器
-│   ├── migration_backup_manager.py # 数据迁移备份
-│   ├── calculations/               # 计算核心
-│   │   └── weight_calculation_core.py
-│   ├── config/                     # 配置管理
-│   │   └── db_config.py
-│   ├── entities/                   # 实体类
-│   │   └── diary.py
-│   ├── mixins/                     # 混入类
-│   │   ├── database_query_mixin.py
-│   │   └── tag_management_mixin.py
-│   ├── repository/                 # 仓储层
-│   │   ├── data_migration_mixin.py
-│   │   ├── diary_operations.py
-│   │   └── statistics_mixin.py
-│   ├── table_models/               # PyQt 表格模型
-│   │   └── diary_table_model.py
-│   └── weight/                     # 权重计算模块
-│       ├── calculation_service.py
-│       ├── calculator.py
-│       ├── diary_selection_service.py
-│       └── normalization_strategies.py
-├── services/                       # 业务服务层
-│   ├── content_service.py
-│   ├── statistics_service.py
-│   └── view_count_service.py
-├── utils/                          # 工具函数
-│   ├── formatters.py
-│   └── theme_utils.py
-├── views/                          # 视图层
-│   ├── main_window.py              # 主窗口
-│   ├── search_dialog.py            # 搜索对话框
-│   ├── components/                 # UI 组件
-│   │   ├── menu_bar.py
-│   │   └── toolbar.py
-│   ├── delegates/                  # 自定义委托
-│   │   └── tag_delegate.py
-│   └── dialogs/                    # 对话框
-│       ├── base_dialog.py
-│       ├── diary_dialogs.py
-│       └── tag_manager_dialog.py
-└── widgets/                        # 自定义控件
-    ├── TagSelectorWidget.py
-    └── layouts/
-        └── flow_layout.py
+├─ desktop/              # 原有 PyQt 源代码、测试、启动脚本、依赖及同步组件
+│  ├─ main.py             # 实际桌面入口
+│  ├─ config/ controllers/ i18n/ models/ services/ utils/ views/ widgets/
+│  └─ tests/
+├─ data/                 # 原有真实日记数据库及 WAL；为安全保留原路径
+├─ server/               # 独立 FastAPI 服务及其独立数据库
+├─ mobile/               # Flutter Android App
+├─ shared/               # 跨端协议和功能对照
+├─ main.py               # 兼容原有 python main.py 启动方式
+├─ launch_diary_app.bat  # 兼容原有桌面快捷方式
+└─ requirements.txt      # 兼容原有安装命令
 ```
 
-## 快捷键
+## 桌面端
 
-- `Ctrl+N`: 新建日记
-- `Ctrl+R`: 随机查看
-- `Ctrl+F`: 搜索
-- `Ctrl+Q`: 退出
-- `F5`: 刷新
+```powershell
+python -m pip install -r requirements.txt
+python main.py
+# 或直接执行 python desktop/main.py
+```
+
+原有日记默认仍读取 `data/diary.db`；不移动、覆盖或复制正在使用的数据库及其 WAL 文件。需要改路径时可配置 `DIARY_DB_PATH`。旧启动脚本与 `main.py` 会转发到 `desktop/` 内的实际工程。PyQt 功能（随机查看、搜索、标签、统计、回收站、批量操作、主题、语言、导入导出）保持原有实现；桌面同步现阶段仍是受控手动流程，不是自动双向同步。
+
+## 手机端
+
+手机 App 已有日记浏览、双遍后台播放和音频缓存；正在扩展桌面管理功能，当前新增了**在线**创建/编辑/删除、日期与正文搜索、标签筛选。离线写入和桌面全部功能尚未完成，见 `shared/feature_parity.md`。具体连接、构建与测试见 `mobile/README.md`。未授权时不要发布服务器或覆盖生产 App。

@@ -1,7 +1,8 @@
 # Pytest configuration for DiaryPyQt
 [tool.pytest.ini_options]
 minversion = "7.0"
-testpaths = ["tests"]
+testpaths = ["desktop/tests", "server/tests"]
+pythonpath = [".", "desktop"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -19,7 +20,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["models", "services"]
+source = ["desktop/models", "desktop/services"]
 omit = [
     "*/tests/*",
     "*/migrations/*",

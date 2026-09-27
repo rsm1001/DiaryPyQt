@@ -1,0 +1,13 @@
+server {
+    listen 80;
+    server_name __PUBLIC_IP__;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/diary-acme;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    # 日记的 IP 证书仍使用 HTTP-01；其余 HTTP 请求沿用金融站点的单一配置。
+    include /etc/nginx/snippets/nexus-blade-site.conf;
+}

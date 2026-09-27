@@ -1,0 +1,30 @@
+name: diary_mobile
+description: DiaryPyQt diary mobile app.
+publish_to: none
+version: 1.0.0+20260927
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2
+  just_audio: ^0.9.46
+  just_audio_background: ^0.0.1-beta.17
+  audio_service: ^0.18.15
+  sqflite: ^2.3.3+1
+  path: ^1.9.0
+  path_provider: ^2.1.4
+  crypto: ^3.0.5
+  connectivity_plus: ^6.1.0
+  cupertino_icons: ^1.0.8
+  flutter_secure_storage: ^11.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

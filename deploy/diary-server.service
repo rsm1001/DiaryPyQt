@@ -1,0 +1,18 @@
+[Unit]
+Description=DiaryPyQt diary server
+After=network.target
+
+[Service]
+Type=simple
+User=diary
+Group=diary
+WorkingDirectory=/opt/diary-server/app
+EnvironmentFile=/etc/diary-server/backend.env
+ExecStart=/opt/diary-server/venv/bin/python -m server.main
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

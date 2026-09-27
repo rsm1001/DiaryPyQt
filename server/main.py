@@ -1,0 +1,383 @@
+"""日记后端 FastAPI 入口。"""
+from typing import List, Optional
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, FastAPI, Query, Request, Response, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+
+from server.audio_provider import EdgeTTSProvider
+from server.audio_repository import AudioRepository
+from server.audio_service import AudioService
+from server.config.settings import Settings, get_settings
+from server.logging_config import (
+    configure_logging,
+    current_request_id,
+    get_logger,
+    reset_request_id,
+    set_request_id,
+)
+from server.repository import DiaryRepository
+from server.sync.repository import SyncRepository
+from server.sync.service import SyncService
+from server.schemas import (
+    AudioAssetListResponse,
+    AudioAssetResponse,
+    AudioGenerateRequest,
+    DiaryCreate,
+    DiaryListResponse,
+    DiaryResponse,
+    DiaryUpdate,
+    ErrorResponse,
+    HealthResponse,
+    TagCreate,
+    TagListResponse,
+    TagResponse,
+    TagUpdate,
+    VoiceListResponse,
+    PlaybackRecordRequest,
+    PlaybackRecordResponse,
+    SyncPullResponse,
+    SyncPushRequest,
+    SyncPushResponse,
+    StatisticsResponse,
+    ViewRecordResponse,
+)
+from server.service import DiaryService, ServiceError
+
+
+configure_logging()
+logger = get_logger("diary.api")
+router = APIRouter(prefix="/api/v1")
+
+
+def get_service(request: Request) -> DiaryService:
+    """从应用状态获取日记服务。"""
+    return request.app.state.diary_service
+
+
+def get_audio_service(request: Request) -> AudioService:
+    """从应用状态获取音频服务。"""
+    return request.app.state.audio_service
+
+
+def get_sync_service(request: Request) -> SyncService:
+    """????????????"""
+    return request.app.state.sync_service
+
+
+def _audio_response(asset: dict) -> AudioAssetResponse:
+    """将数据库音频资源转换为 API 响应。"""
+    return AudioAssetResponse(
+        id=asset["id"],
+        diary_id=asset["diary_id"],
+        voice_id=asset["voice_id"],
+        content_hash=asset["content_hash"],
+        voice_config_hash=asset["voice_config_hash"],
+        duration_ms=asset["duration_ms"],
+        format=asset["format"],
+        file_hash=asset["file_hash"],
+        status=asset["status"],
+        created_at=asset["created_at"],
+        download_url=f"/api/v1/audio-assets/{asset['id']}/download",
+    )
+
+
+@router.get("/diaries", response_model=DiaryListResponse)
+def list_diaries(
+    include_deleted: bool = Query(default=False),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    service: DiaryService = Depends(get_service),
+) -> DiaryListResponse:
+    """查询日记列表。"""
+    logger.info("diary_list_requested", extra={"limit": limit, "offset": offset})
+    items = service.list_diaries(include_deleted, limit, offset)
+    return DiaryListResponse(items=items)
+
+
+@router.get("/trash", response_model=DiaryListResponse)
+def list_trash(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    service: DiaryService = Depends(get_service),
+) -> DiaryListResponse:
+    """?????????"""
+    logger.info("trash_list_requested", extra={"limit": limit, "offset": offset})
+    return DiaryListResponse(items=service.list_deleted(limit, offset))
+
+
+@router.post("/trash/{diary_id}/restore", response_model=DiaryResponse)
+def restore_trash(
+    diary_id: str,
+    version: Optional[int] = Query(default=None, ge=1),
+    service: DiaryService = Depends(get_service),
+) -> DiaryResponse:
+    """????????"""
+    logger.info("trash_restore_requested", extra={"diary_id": diary_id})
+    return DiaryResponse(**service.restore_diary(diary_id, version))
+
+
+@router.delete("/trash/{diary_id}", status_code=status.HTTP_204_NO_CONTENT)
+def permanently_delete_trash(
+    diary_id: str,
+    service: DiaryService = Depends(get_service),
+) -> Response:
+    """????????????????"""
+    logger.info("trash_permanent_delete_requested", extra={"diary_id": diary_id})
+    service.permanently_delete_diary(diary_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/diaries/{diary_id}", response_model=DiaryResponse)
+def get_diary(diary_id: str, service: DiaryService = Depends(get_service)) -> DiaryResponse:
+    """查询单条日记。"""
+    logger.info("diary_requested", extra={"diary_id": diary_id})
+    return service.get_diary(diary_id)
+
+
+@router.post("/diaries", response_model=DiaryResponse, status_code=status.HTTP_201_CREATED)
+def create_diary(payload: DiaryCreate, service: DiaryService = Depends(get_service)) -> DiaryResponse:
+    """创建日记。"""
+    logger.info("diary_create_requested")
+    return service.create_diary(payload)
+
+
+@router.patch("/diaries/{diary_id}", response_model=DiaryResponse)
+def update_diary(
+    diary_id: str,
+    payload: DiaryUpdate,
+    service: DiaryService = Depends(get_service),
+) -> DiaryResponse:
+    """更新日记并递增版本。"""
+    logger.info("diary_update_requested", extra={"diary_id": diary_id})
+    return service.update_diary(diary_id, payload)
+
+
+@router.delete("/diaries/{diary_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_diary(
+    diary_id: str,
+    version: Optional[int] = Query(default=None, ge=1),
+    service: DiaryService = Depends(get_service),
+) -> Response:
+    """软删除日记。"""
+    logger.info("diary_delete_requested", extra={"diary_id": diary_id})
+    service.delete_diary(diary_id, version)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/diaries/{diary_id}/view", response_model=ViewRecordResponse)
+def record_diary_view(
+    diary_id: str,
+    service: DiaryService = Depends(get_service),
+) -> ViewRecordResponse:
+    """?????????"""
+    logger.info("diary_view_recorded", extra={"diary_id": diary_id})
+    return ViewRecordResponse(**service.record_view(diary_id))
+
+
+@router.get("/statistics", response_model=StatisticsResponse)
+def get_statistics(service: DiaryService = Depends(get_service)) -> StatisticsResponse:
+    """????????????"""
+    logger.info("diary_statistics_requested")
+    return StatisticsResponse(**service.view_statistics())
+
+
+@router.get("/sync/pull", response_model=SyncPullResponse)
+def pull_sync(
+    cursor: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    sync_service: SyncService = Depends(get_sync_service),
+) -> SyncPullResponse:
+    """??????????"""
+    logger.info("sync_pull_requested", extra={"cursor": cursor, "limit": limit})
+    return SyncPullResponse(**sync_service.pull(cursor, limit))
+
+
+@router.post("/sync/push", response_model=SyncPushResponse)
+def push_sync(
+    payload: SyncPushRequest,
+    sync_service: SyncService = Depends(get_sync_service),
+) -> SyncPushResponse:
+    """??????????"""
+    logger.info("sync_push_requested", extra={"count": len(payload.operations)})
+    result = sync_service.push([item.model_dump() for item in payload.operations])
+    return SyncPushResponse(**result)
+
+
+@router.post("/playback-records", response_model=PlaybackRecordResponse)
+def save_playback(
+    payload: PlaybackRecordRequest,
+    sync_service: SyncService = Depends(get_sync_service),
+) -> PlaybackRecordResponse:
+    """??????????????"""
+    logger.info("playback_record_requested", extra={"diary_id": payload.diary_id})
+    return PlaybackRecordResponse(**sync_service.save_playback(payload.model_dump()))
+
+
+@router.get("/tags", response_model=TagListResponse)
+def list_tags(service: DiaryService = Depends(get_service)) -> TagListResponse:
+    """查询标签列表。"""
+    logger.info("tag_list_requested")
+    return TagListResponse(items=service.list_tags())
+
+
+@router.post("/tags", response_model=TagResponse, status_code=status.HTTP_201_CREATED)
+def create_tag(payload: TagCreate, service: DiaryService = Depends(get_service)) -> TagResponse:
+    """????????"""
+    logger.info("tag_create_requested")
+    return TagResponse(**service.create_tag(payload.name))
+
+
+@router.patch("/tags/{tag_id}", response_model=TagResponse)
+def update_tag(
+    tag_id: str,
+    payload: TagUpdate,
+    service: DiaryService = Depends(get_service),
+) -> TagResponse:
+    """???????? ID?"""
+    logger.info("tag_update_requested", extra={"tag_id": tag_id})
+    return TagResponse(**service.update_tag(tag_id, payload.name))
+
+
+@router.delete("/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_tag(tag_id: str, service: DiaryService = Depends(get_service)) -> Response:
+    """????????????"""
+    logger.info("tag_delete_requested", extra={"tag_id": tag_id})
+    service.delete_tag(tag_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/voices", response_model=VoiceListResponse)
+def list_voices(audio_service: AudioService = Depends(get_audio_service)) -> VoiceListResponse:
+    """查询语音包。"""
+    logger.info("voice_list_requested")
+    return VoiceListResponse(items=audio_service.list_voices())
+
+
+@router.post("/diaries/{diary_id}/audio/generate", response_model=AudioAssetResponse)
+async def generate_audio(
+    diary_id: str,
+    payload: AudioGenerateRequest,
+    audio_service: AudioService = Depends(get_audio_service),
+) -> AudioAssetResponse:
+    """生成或复用日记音频。"""
+    logger.info("audio_generation_requested", extra={"diary_id": diary_id})
+    asset = await audio_service.generate(diary_id, payload.voice_id)
+    return _audio_response(asset)
+
+
+@router.get("/diaries/{diary_id}/audio", response_model=AudioAssetListResponse)
+def list_audio(
+    diary_id: str,
+    audio_service: AudioService = Depends(get_audio_service),
+) -> AudioAssetListResponse:
+    """查询日记已生成的音频。"""
+    logger.info("audio_list_requested", extra={"diary_id": diary_id})
+    assets = audio_service.list_assets(diary_id)
+    return AudioAssetListResponse(items=[_audio_response(asset) for asset in assets])
+
+
+@router.get("/audio-assets/{asset_id}/download")
+def download_audio(
+    asset_id: str,
+    audio_service: AudioService = Depends(get_audio_service),
+) -> FileResponse:
+    """下载已就绪的音频文件。"""
+    asset = audio_service.get_asset(asset_id)
+    logger.info("audio_download_requested", extra={"asset_id": asset_id})
+    return FileResponse(
+        asset["file_path"],
+        media_type="audio/mpeg",
+        filename=f"{asset_id}.mp3",
+    )
+
+
+def create_app(
+    settings: Optional[Settings] = None,
+    service: Optional[DiaryService] = None,
+    audio_service: Optional[AudioService] = None,
+) -> FastAPI:
+    """创建日记后端应用。"""
+    active_settings = settings or get_settings()
+    sync_repository = SyncRepository(active_settings.db_path)
+    active_service = service or DiaryService(
+        DiaryRepository(active_settings.db_path), sync_repository=sync_repository
+    )
+    active_audio_service = audio_service or AudioService(
+        diary_service=active_service,
+        audio_repository=AudioRepository(active_settings.db_path),
+        provider=EdgeTTSProvider(),
+        audio_root=active_settings.audio_root,
+        default_voice_name=active_settings.default_voice_name,
+    )
+    app = FastAPI(title="Diary Server", version="1.0.0")
+    app.state.diary_service = active_service
+    app.state.audio_service = active_audio_service
+    app.state.sync_service = SyncService(active_service, sync_repository)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=active_settings.allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "X-Request-ID"],
+    )
+
+    @app.middleware("http")
+    async def request_id_middleware(request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID") or str(uuid4())
+        token = set_request_id(request_id)
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            reset_request_id(token)
+
+    @app.exception_handler(ServiceError)
+    async def service_error_handler(request: Request, exc: ServiceError) -> JSONResponse:
+        logger.warning(
+            "diary_service_error",
+            extra={"path": request.url.path, "error_code": exc.code},
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=ErrorResponse(
+                code=exc.code,
+                message=exc.message,
+                request_id=current_request_id(),
+                details=exc.details,
+            ).model_dump(),
+        )
+
+    @app.exception_handler(Exception)
+    async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        logger.exception("diary_unexpected_error", extra={"path": request.url.path})
+        return JSONResponse(
+            status_code=500,
+            content=ErrorResponse(
+                code="INTERNAL_SERVER_ERROR",
+                message="服务器内部错误",
+                request_id=current_request_id(),
+                details={},
+            ).model_dump(),
+        )
+
+    @app.get("/health", response_model=HealthResponse)
+    def health_check() -> HealthResponse:
+        """检查日记后端状态。"""
+        logger.info("diary_health_check")
+        return HealthResponse(status="ok", service="diary-server")
+
+    app.include_router(router)
+    return app
+
+
+app = create_app()
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    settings = get_settings()
+    uvicorn.run("server.main:app", host=settings.host, port=settings.port)

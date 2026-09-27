@@ -1,10 +1,2 @@
-# Runtime dependencies (Python 3.8-compatible upper bounds)
-PyQt6>=6.4.0,<6.8.0
-PyQt6-Qt6>=6.4.0,<6.8.0
-PyQt6-sip>=13.4.0,<13.9.0
-
-# Test dependencies
-pytest>=7.0.0,<8.4.0
-pytest-cov>=4.0.0,<6.0.0
-pytest-mock>=3.0.0,<4.0.0
-hypothesis>=6.0.0,<7.0.0
+﻿# 兼容根目录安装命令，桌面依赖统一放在 desktop/。
+-r desktop/requirements.txt

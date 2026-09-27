@@ -74,8 +74,16 @@ data/*.db-wal
 !data/.gitkeep
 
 # i18n - compiled translations (keep .po source files)
-i18n/__pycache__/
-i18n/*/__pycache__/
-i18n/*/*/__pycache__/
-i18n/locale/*/LC_MESSAGES/*.mo
-i18n/locale/*.pot
+desktop/i18n/__pycache__/
+desktop/i18n/*/__pycache__/
+desktop/i18n/*/*/__pycache__/
+desktop/i18n/locale/*/LC_MESSAGES/*.mo
+desktop/i18n/locale/*.pot
+# Diary server runtime data
+server/.env
+server/data/*.db
+server/data/*.db-*
+server/data/audio/
+
+# 桌面端连接密码配置
+desktop/.env
