@@ -1,4 +1,5 @@
 """日记 API 请求和响应模型。"""
+from datetime import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -29,6 +30,17 @@ class DiaryResponse(BaseModel):
     deleted_at: Optional[str]
     view_count: int = 0
     last_viewed_at: Optional[str] = None
+
+
+class ViewBaselineRequest(BaseModel):
+    source_id: str = Field(min_length=1)
+    view_count: int = Field(ge=0)
+    last_viewed_at: Optional[datetime] = None
+
+
+class ViewRecordRequest(BaseModel):
+    event_id: Optional[str] = Field(default=None, min_length=1)
+    viewed_at: Optional[datetime] = None
 
 
 class ViewRecordResponse(BaseModel):
@@ -120,6 +132,7 @@ class ErrorResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     service: str
+    capabilities: List[str] = Field(default_factory=list)
 
 
 class SyncOperation(BaseModel):

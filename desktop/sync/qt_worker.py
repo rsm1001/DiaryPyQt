@@ -9,6 +9,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from .client import DiaryServerClient
 from .local_repository import LocalDiaryRepository
 from .service import DesktopSyncService
+from .view_repository import LocalViewRepository
 from .preview import preview_remote
 from .reconcile import plan_mapping
 
@@ -42,7 +43,7 @@ class SyncPreviewWorker(QThread):
 
 
 class SyncReviewWorker(QThread):
-    """??????????????????"""
+    """后台执行映射审核和手动下行，避免界面等待网络。"""
 
     completed = pyqtSignal(dict)
     failed = pyqtSignal(str)
@@ -79,13 +80,16 @@ class SyncReviewWorker(QThread):
             elif self.operation == "pull":
                 result = service.pull_once(LocalDiaryRepository(Path(self.db_path)))
                 result["operation"] = self.operation
+            elif self.operation == "views":
+                result = service.sync_views(LocalViewRepository(Path(self.db_path)))
+                result["operation"] = self.operation
             else:
-                raise ValueError("????????")
+                raise ValueError("未知的服务器同步操作")
         except Exception:
-            logger.exception("??????????", extra={"request_id": request_id,
+            logger.exception("桌面服务器同步操作失败", extra={"request_id": request_id,
                                                      "operation": self.operation})
-            self.failed.emit("?????????????????????")
+            self.failed.emit("服务器同步失败，请核对映射与连接配置，详情见日志。")
         else:
-            logger.info("??????????", extra={"request_id": request_id,
+            logger.info("桌面服务器同步操作完成", extra={"request_id": request_id,
                                                      "operation": self.operation})
             self.completed.emit(result)

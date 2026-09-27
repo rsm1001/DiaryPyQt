@@ -7,6 +7,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/audio_asset.dart';
 import '../models/diary.dart';
+import '../models/diary_view_result.dart';
 import 'random_selector.dart';
 
 class LocalStore {
@@ -64,6 +65,30 @@ class LocalStore {
     );
   }
 
+  Future<void> replaceLocalId(String temporaryId, Diary created, int outboxId) async {
+    final db = await database;
+    await db.transaction((transaction) async {
+      final rows = await transaction.query('diaries',
+          where: 'id = ?', whereArgs: [temporaryId], limit: 1);
+      if (rows.isEmpty) throw StateError('待同步的本地日记不存在');
+      final local = Diary.fromJson(_decode(rows.first['json'] as String));
+      final merged = created.copyWith(
+          viewCount: local.viewCount, lastViewedAt: local.lastViewedAt);
+      await transaction.delete('diaries',
+          where: 'id = ?', whereArgs: [temporaryId]);
+      await transaction.insert('diaries', {
+        'id': created.id,
+        'json': _encode(merged.toJson()),
+        'version': created.version,
+        'content_hash': created.contentHash,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await transaction.update('outbox', {'entity_id': created.id},
+          where: 'entity_id = ?', whereArgs: [temporaryId]);
+      await transaction.delete('outbox',
+          where: 'id = ? AND action = ?', whereArgs: [outboxId, 'create']);
+    });
+  }
+
   Future<void> replaceDiaries(List<Diary> diaries) async {
     final db = await database;
     await db.transaction((transaction) async {
@@ -110,8 +135,8 @@ class LocalStore {
     await db.transaction((transaction) async {
       final existing = await transaction.query(
         'outbox',
-        where: 'entity_id = ?',
-        whereArgs: [entityId],
+        where: 'entity_id = ? AND action != ?',
+        whereArgs: [entityId, 'view'],
         orderBy: 'id ASC',
         limit: 1,
       );
@@ -153,12 +178,60 @@ class LocalStore {
     });
   }
 
-  Future<void> enqueueView(String diaryId, int baseVersion) async {
-    await (await database).insert('outbox', {
-      'entity_id': diaryId,
-      'action': 'view',
-      'base_version': baseVersion,
-      'json': _encode(const {}),
+  Future<int> recordViewLocally(
+      String diaryId, String eventId, String viewedAt) async {
+    final db = await database;
+    return db.transaction((transaction) async {
+      final rows = await transaction.query('diaries',
+          where: 'id = ?', whereArgs: [diaryId], limit: 1);
+      if (rows.isEmpty) throw StateError('本地日记不存在，无法记录查看');
+      final diary = Diary.fromJson(_decode(rows.first['json'] as String));
+      final id = await transaction.insert('outbox', {
+        'entity_id': diaryId,
+        'action': 'view',
+        'base_version': diary.version,
+        'json': _encode({'event_id': eventId, 'viewed_at': viewedAt}),
+      });
+      await transaction.update(
+        'diaries',
+        {'json': _encode(diary.copyWith(
+            viewCount: diary.viewCount + 1, lastViewedAt: viewedAt).toJson())},
+        where: 'id = ?',
+        whereArgs: [diaryId],
+      );
+      return id;
+    });
+  }
+
+  Future<void> ensureViewPayload(int id, String eventId, String viewedAt) async {
+    final db = await database;
+    await db.update('outbox',
+        {'json': _encode({'event_id': eventId, 'viewed_at': viewedAt})},
+        where: 'id = ? AND action = ? AND json = ?',
+        whereArgs: [id, 'view', _encode(const {})]);
+  }
+
+  Future<void> confirmView(int id, String diaryId, DiaryViewResult result) async {
+    final db = await database;
+    await db.transaction((transaction) async {
+      final rows = await transaction.query('diaries',
+          where: 'id = ?', whereArgs: [diaryId], limit: 1);
+      if (rows.isNotEmpty) {
+        final diary = Diary.fromJson(_decode(rows.first['json'] as String));
+        final last = diary.lastViewedAt;
+        final latest = last != null &&
+                DateTime.parse(last).isAfter(DateTime.parse(result.viewedAt))
+            ? last
+            : result.viewedAt;
+        await transaction.update('diaries', {
+          'json': _encode(diary.copyWith(
+              viewCount: diary.viewCount > result.viewCount
+                  ? diary.viewCount
+                  : result.viewCount,
+              lastViewedAt: latest).toJson()),
+        }, where: 'id = ?', whereArgs: [diaryId]);
+      }
+      await transaction.delete('outbox', where: 'id = ?', whereArgs: [id]);
     });
   }
 

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -74,6 +75,8 @@ class SyncManager {
         version: diary.version,
         tags: List.unmodifiable(tags),
         updatedAt: DateTime.now().toUtc().toIso8601String(),
+        viewCount: diary.viewCount,
+        lastViewedAt: diary.lastViewedAt,
       );
       await store.saveDiary(local);
       await store.enqueueMutation(
@@ -86,18 +89,29 @@ class SyncManager {
     }
   }
 
+  String _newViewEventId() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex = bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
+        '${hex.substring(20)}';
+  }
+
   Future<void> recordView(Diary diary) async {
+    final eventId = _newViewEventId();
+    final viewedAt = DateTime.now().toUtc().toIso8601String();
+    final id = await store.recordViewLocally(diary.id, eventId, viewedAt);
+    if (diary.id.startsWith('local-')) return;
     try {
-      final result = await api.recordView(diary);
-      await store.saveDiary(diary.copyWith(
-          viewCount: result.viewCount, lastViewedAt: result.viewedAt));
+      final result = await api.recordView(diary,
+          eventId: eventId, viewedAt: viewedAt);
+      await store.confirmView(id, diary.id, result);
     } catch (error) {
       if (!_isNetworkFailure(error)) rethrow;
-      final local = diary.copyWith(
-          viewCount: diary.viewCount + 1,
-          lastViewedAt: DateTime.now().toUtc().toIso8601String());
-      await store.saveDiary(local);
-      await store.enqueueView(diary.id, diary.version);
     }
   }
 
@@ -115,6 +129,8 @@ class SyncManager {
         version: diary.version,
         tags: diary.tags,
         updatedAt: diary.updatedAt,
+        viewCount: diary.viewCount,
+        lastViewedAt: diary.lastViewedAt,
         deletedAt: DateTime.now().toUtc().toIso8601String(),
       );
       await store.saveDiary(local);
@@ -128,7 +144,10 @@ class SyncManager {
   }
 
   Future<void> _flushOutbox() async {
-    for (final item in await store.getOutbox()) {
+    while (true) {
+      final pending = await store.getOutbox();
+      if (pending.isEmpty) return;
+      final item = pending.first;
       final id = item['id'] as int;
       final entityId = item['entity_id'] as String;
       final action = item['action'] as String;
@@ -136,11 +155,21 @@ class SyncManager {
           Map<String, dynamic>.from(jsonDecode(item['json'] as String) as Map);
       if (action == 'view') {
         final current = await store.getDiary(entityId);
-        if (current != null) {
-          final result = await api.recordView(current);
-          await store.saveDiary(current.copyWith(
-              viewCount: result.viewCount, lastViewedAt: result.viewedAt));
+        if (current == null) {
+          throw const DiaryApiException('待同步查看的本地日记不存在，已停止同步');
         }
+        if (payload['event_id'] == null || payload['viewed_at'] == null) {
+          final eventId = _newViewEventId();
+          final viewedAt = DateTime.now().toUtc().toIso8601String();
+          await store.ensureViewPayload(id, eventId, viewedAt);
+          payload['event_id'] = eventId;
+          payload['viewed_at'] = viewedAt;
+        }
+        final result = await api.recordView(current,
+            eventId: payload['event_id'] as String,
+            viewedAt: payload['viewed_at'] as String);
+        await store.confirmView(id, entityId, result);
+        continue;
       } else if (action == 'create') {
         final created = await api.createDiary(
           date: payload['date'] as String,
@@ -148,8 +177,8 @@ class SyncManager {
           tags:
               List<String>.from(payload['tags'] as List<dynamic>? ?? const []),
         );
-        await store.removeDiary(entityId);
-        await store.saveDiary(created);
+        await store.replaceLocalId(entityId, created, id);
+        continue;
       } else {
         final current = await store.getDiary(entityId);
         if (current == null) {
@@ -174,12 +203,14 @@ class SyncManager {
     }
   }
 
+  Future<void> flushPending() => _flushOutbox();
+
   Future<List<Diary>> refresh() async {
     final connectivity = await Connectivity().checkConnectivity();
     if (connectivity.contains(ConnectivityResult.none)) {
       return store.getDiaries();
     }
-    await _flushOutbox();
+    await flushPending();
     final diaries = await api.fetchDiaries();
     await store.replaceDiaries(diaries);
     final pull = await api.pull(await store.getCursor());

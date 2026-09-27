@@ -70,8 +70,11 @@ void main() {
   });
 
   test('view event returns server count', () async {
+    http.Request? sent;
     final api = DiaryApi(
-      client: MockClient((request) async => http.Response.bytes(
+      client: MockClient((request) async {
+        sent = request;
+        return http.Response.bytes(
             utf8.encode(jsonEncode({
               'diary_id': 'entry-id',
               'view_count': 7,
@@ -79,10 +82,14 @@ void main() {
             })),
             200,
             headers: {'content-type': 'application/json; charset=utf-8'},
-          )),
+          );
+      }),
       baseUrl: 'https://example.invalid',
     );
-    final result = await api.recordView(Diary.fromJson(diaryJson()));
+    final result = await api.recordView(Diary.fromJson(diaryJson()),
+        eventId: 'device-1', viewedAt: '2026-09-26T00:00:00Z');
+    expect(jsonDecode(sent!.body)['event_id'], 'device-1');
+    expect(jsonDecode(sent!.body)['viewed_at'], '2026-09-26T00:00:00Z');
     expect(result.viewCount, 7);
     expect(result.viewedAt, '2026-09-26T00:00:00Z');
     api.dispose();

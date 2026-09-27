@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QApplication
 from desktop import main as desktop_main
 from models.config.db_config import DatabaseConfig
 from views.main_window import MainWindow
+from views.sync_review import SyncReviewDialog
 
 
 def test_desktop_entry_reuses_original_database_path():
@@ -21,3 +22,15 @@ def test_sync_review_action_is_available(qapp, tmp_path):
                for action in menu.actions()]
     assert any("同步审核" in action for action in actions)
     window.close()
+
+
+def test_view_sync_requires_confirmed_mapping(qapp):
+    dialog = SyncReviewDialog()
+    dialog.set_result({"local": 2, "matched": 1, "local_only": 1,
+                       "remote_only": 0, "ambiguous": 0, "mapped": False})
+    assert not dialog.views_button.isEnabled()
+    assert not dialog.map_button.isEnabled()
+    dialog.set_result({"local": 2, "matched": 2, "local_only": 0,
+                       "remote_only": 0, "ambiguous": 0, "mapped": True})
+    assert dialog.views_button.isEnabled()
+    dialog.close()

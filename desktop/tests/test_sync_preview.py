@@ -78,8 +78,10 @@ def test_client_uses_basic_auth_and_request_id(monkeypatch):
     assert timeout == 15
 
 
-def test_client_requires_opt_in_address(monkeypatch):
+def test_client_requires_opt_in_address(monkeypatch, tmp_path):
     monkeypatch.delenv("DIARY_API_BASE_URL", raising=False)
+    monkeypatch.setattr("desktop.config.settings._default_connection_file",
+                        lambda: tmp_path / "missing-connection.txt")
     with pytest.raises(ValueError, match="DIARY_API_BASE_URL"):
         DiaryServerClient.from_environment()
 

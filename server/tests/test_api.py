@@ -296,3 +296,70 @@ def test_trash_restore_and_permanent_delete():
             assert client.delete(f"/api/v1/trash/{diary_id}").status_code == 204
             assert client.get(f"/api/v1/diaries/{diary_id}").status_code == 404
             assert client.get("/api/v1/trash").json()["items"] == []
+
+
+def test_desktop_baseline_is_idempotent_and_keeps_server_views():
+    with TemporaryDirectory() as temp_dir:
+        settings = build_settings(temp_dir)
+        with TestClient(create_app(settings=settings)) as client:
+            created = client.post("/api/v1/diaries", json={
+                "date": "2026-09-27", "content": "history", "tags": [],
+            }).json()
+            url = f"/api/v1/diaries/{created['id']}"
+            client.post(url + "/view", json={
+                "event_id": "mobile-one", "viewed_at": "2026-09-27T10:00:00Z",
+            })
+            baseline = {"source_id": "desktop-initial:" + created["id"],
+                        "view_count": 12, "last_viewed_at": "2026-09-26T12:00:00Z"}
+            first = client.post(url + "/view-baselines", json=baseline)
+            assert first.status_code == 200
+            assert first.json()["view_count"] == 13
+            assert first.json()["last_viewed_at"] == "2026-09-27T10:00:00Z"
+            assert client.post(url + "/view-baselines", json=baseline).json()["view_count"] == 13
+            other = {**baseline, "view_count": 11}
+            assert client.post(url + "/view-baselines", json=other).status_code == 409
+            assert client.get(url).json()["view_count"] == 13
+            client.post(url + "/view", json={
+                "event_id": "mobile-two", "viewed_at": "2026-09-27T11:00:00Z",
+            })
+            assert client.get(url).json()["view_count"] == 14
+        reopened = DiaryRepository(settings.db_path)
+        assert reopened.import_view_baseline(
+            created["id"], baseline["source_id"], 12, "2026-09-26T12:00:00Z"
+        )["view_count"] == 14
+
+
+def test_health_advertises_idempotent_view_events():
+    with TemporaryDirectory() as temp_dir:
+        with TestClient(create_app(settings=build_settings(temp_dir))) as client:
+            health = client.get("/health")
+            assert health.status_code == 200
+            assert "view_event_idempotent_v1" in health.json()["capabilities"]
+            assert "desktop_view_baseline_v1" in health.json()["capabilities"]
+
+
+def test_view_events_are_idempotent_across_retries_and_devices():
+    """断网重试与多设备提交只累加不同事件。"""
+    with TemporaryDirectory() as temp_dir:
+        settings = build_settings(temp_dir)
+        with TestClient(create_app(settings=settings)) as client:
+            first = client.post("/api/v1/diaries", json={
+                "date": "2026-09-27", "content": "离线查看", "tags": [],
+            }).json()["id"]
+            second = client.post("/api/v1/diaries", json={
+                "date": "2026-09-27", "content": "另一本", "tags": [],
+            }).json()["id"]
+            url = f"/api/v1/diaries/{first}/view"
+            recent = {"event_id": "device-a-1", "viewed_at": "2026-09-27T12:00:00+00:00"}
+            older = {"event_id": "device-b-1", "viewed_at": "2026-09-26T12:00:00+00:00"}
+            assert client.post(url, json=recent).json()["view_count"] == 1
+            assert client.post(url, json=recent).json()["view_count"] == 1
+            assert client.post(url, json=older).json()["view_count"] == 2
+            assert client.post(url, json=older).json()["viewed_at"] == "2026-09-27T12:00:00Z"
+            assert client.post(f"/api/v1/diaries/{second}/view", json=recent).status_code == 409
+            assert client.get("/api/v1/statistics").json()["total_views"] == 2
+            assert client.post(url, json={"event_id": "naive", "viewed_at": "2026-09-27T12:00:00"}).status_code == 422
+
+        # 重开数据库时重试仍只计一次。
+        repository = DiaryRepository(settings.db_path)
+        assert repository.record_view(first, recent["viewed_at"], recent["event_id"])["view_count"] == 2

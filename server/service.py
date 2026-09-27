@@ -121,9 +121,30 @@ class DiaryService:
             {"id": diary_id, "version": current["version"] + 1, "updated_at": deleted_at}, "delete"
         )
 
-    def record_view(self, diary_id: str) -> Dict[str, Any]:
+    def record_view(self, diary_id: str, event_id: Optional[str] = None,
+                    viewed_at: Optional[datetime] = None) -> Dict[str, Any]:
         self.get_diary(diary_id)
-        return self.repository.record_view(diary_id, utc_now())
+        if viewed_at is not None and viewed_at.tzinfo is None:
+            raise ServiceError("INVALID_VIEW_TIME", "查看时间必须包含时区", 422)
+        timestamp = viewed_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if viewed_at else utc_now()
+        try:
+            return self.repository.record_view(diary_id, timestamp, event_id)
+        except ValueError as error:
+            raise ServiceError("VIEW_EVENT_CONFLICT", "查看事件 ID 已用于其他日记", 409) from error
+
+    def import_view_baseline(self, diary_id: str, source_id: str, count: int,
+                             viewed_at: Optional[datetime]) -> Dict[str, Any]:
+        self.get_diary(diary_id)
+        if (count > 0 and viewed_at is None) or (count == 0 and viewed_at is not None):
+            raise ServiceError("INVALID_VIEW_BASELINE", "查看次数与时间不一致", 422)
+        if viewed_at is not None and viewed_at.tzinfo is None:
+            raise ServiceError("INVALID_VIEW_TIME", "查看时间必须包含时区", 422)
+        timestamp = (viewed_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+                     if viewed_at else None)
+        try:
+            return self.repository.import_view_baseline(diary_id, source_id, count, timestamp)
+        except ValueError as error:
+            raise ServiceError("VIEW_BASELINE_CONFLICT", "历史查看基线已导入且与本次不同", 409) from error
 
     def view_statistics(self) -> Dict[str, Any]:
         return self.repository.view_statistics()

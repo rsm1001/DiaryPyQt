@@ -41,6 +41,8 @@ from server.schemas import (
     SyncPushRequest,
     SyncPushResponse,
     StatisticsResponse,
+    ViewBaselineRequest,
+    ViewRecordRequest,
     ViewRecordResponse,
 )
 from server.service import DiaryService, ServiceError
@@ -166,14 +168,31 @@ def delete_diary(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post("/diaries/{diary_id}/view-baselines", response_model=DiaryResponse)
+def import_diary_view_baseline(
+    diary_id: str, payload: ViewBaselineRequest,
+    service: DiaryService = Depends(get_service),
+) -> DiaryResponse:
+    """幂等补入初始电脑统计，保留服务器现有的新查看事件。"""
+    logger.info("diary_view_baseline_requested", extra={"diary_id": diary_id})
+    service.import_view_baseline(diary_id, payload.source_id,
+                                 payload.view_count, payload.last_viewed_at)
+    return DiaryResponse(**service.get_diary(diary_id))
+
+
 @router.post("/diaries/{diary_id}/view", response_model=ViewRecordResponse)
 def record_diary_view(
     diary_id: str,
+    payload: Optional[ViewRecordRequest] = None,
     service: DiaryService = Depends(get_service),
 ) -> ViewRecordResponse:
-    """?????????"""
+    """按事件 ID 去重，同时兼容没有请求体的旧客户端。"""
     logger.info("diary_view_recorded", extra={"diary_id": diary_id})
-    return ViewRecordResponse(**service.record_view(diary_id))
+    return ViewRecordResponse(**service.record_view(
+        diary_id,
+        event_id=payload.event_id if payload else None,
+        viewed_at=payload.viewed_at if payload else None,
+    ))
 
 
 @router.get("/statistics", response_model=StatisticsResponse)
@@ -367,7 +386,8 @@ def create_app(
     def health_check() -> HealthResponse:
         """检查日记后端状态。"""
         logger.info("diary_health_check")
-        return HealthResponse(status="ok", service="diary-server")
+        return HealthResponse(status="ok", service="diary-server",
+                              capabilities=["view_event_idempotent_v1", "desktop_view_baseline_v1"])
 
     app.include_router(router)
     return app

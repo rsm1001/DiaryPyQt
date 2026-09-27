@@ -100,7 +100,8 @@ class DiaryApi {
     }
   }
 
-  Future<DiaryViewResult> recordView(Diary diary) async {
+  Future<DiaryViewResult> recordView(Diary diary,
+      {required String eventId, required String viewedAt}) async {
     return _networkSafe(() async {
       final requestId = _newRequestId();
       final response = await _client
@@ -108,6 +109,7 @@ class DiaryApi {
             Uri.parse(
                 '$_baseUrl/api/v1/diaries/${Uri.encodeComponent(diary.id)}/view'),
             headers: _mutationHeaders(requestId),
+            body: jsonEncode({'event_id': eventId, 'viewed_at': viewedAt}),
           )
           .timeout(_timeout);
       _logMutation('record_view', requestId, response.statusCode);

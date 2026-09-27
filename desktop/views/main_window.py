@@ -8,14 +8,15 @@
 import logging
 from typing import Optional
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QSplitter, QTableView, QStatusBar, QTabWidget, QMessageBox)
 
 from i18n import _
 from controllers.enhanced_diary_controller import EnhancedDiaryController
-from desktop.config.settings import get_sync_settings
+from desktop.config.settings import VIEW_SYNC_INTERVAL_MS, get_sync_settings
 from desktop.sync.qt_worker import SyncPreviewWorker, SyncReviewWorker
+from desktop.sync.view_repository import LocalViewRepository
 from models.table_models.diary_table_model import DiaryTableModel
 from views.actions import ActionFactory
 from views.components.calendar.calendar_panel import CalendarPanelFactory
@@ -48,6 +49,10 @@ class MainWindow(QMainWindow):
         self._sync_review_worker = None
         self._sync_review_dialog = None
         self._sync_review_follow_up = None
+        self._auto_view_worker = None
+        self._auto_view_timer = QTimer(self)
+        self._auto_view_timer.setInterval(VIEW_SYNC_INTERVAL_MS)
+        self._auto_view_timer.timeout.connect(self._auto_sync_views)
 
         # 启动时清理旧查看日志
         self.controller.cleanup_old_view_logs()
@@ -194,12 +199,14 @@ class MainWindow(QMainWindow):
         dialog.refresh_requested.connect(self._start_sync_review)
         dialog.map_requested.connect(lambda: self._start_sync_review("map"))
         dialog.pull_requested.connect(lambda: self._start_sync_review("pull"))
+        dialog.views_requested.connect(lambda: self._start_sync_review("views"))
         dialog.finished.connect(self._on_sync_review_dialog_finished)
         dialog.show()
         self._start_sync_review("preview")
 
     def _start_sync_review(self, operation: str = "preview") -> None:
-        if self._sync_review_worker is not None or self._sync_review_dialog is None:
+        if (self._sync_review_worker is not None or self._auto_view_worker is not None
+                or self._sync_review_dialog is None):
             return
         try:
             settings = get_sync_settings()
@@ -225,8 +232,13 @@ class MainWindow(QMainWindow):
                 f"??? {result.get('applied', 0)} ?????? {result.get('cursor', 0)}", 5000
             )
         elif operation == "map":
+            self.statusBar().showMessage(f"已映射 {result.get('mapped', 0)} 篇日记", 5000)
+        elif operation == "views":
+            self._enable_auto_views()
+            self.load_data()
             self.statusBar().showMessage(
-                f"??? {result.get('mapped', 0)} ???/?????", 5000
+                f"已核对电脑历史查看 {result.get('baseline_count', 0)} 次，服务器新增下行 "
+                f"{result.get('added', 0)} 次", 8000
             )
         if operation != "preview":
             self._sync_review_follow_up = "preview"
@@ -247,6 +259,45 @@ class MainWindow(QMainWindow):
         self._sync_review_follow_up = None
         if follow_up is not None:
             self._start_sync_review(follow_up)
+
+    def _enable_auto_views(self) -> None:
+        try:
+            settings = get_sync_settings()
+            if not settings.state_path.is_file():
+                return
+            if not LocalViewRepository(self.db_path).has_checkpoint():
+                return
+        except (ValueError, OSError):
+            return
+        self._auto_view_timer.start()
+        QTimer.singleShot(0, self._auto_sync_views)
+
+    def _auto_sync_views(self) -> None:
+        if self._auto_view_worker is not None or self._sync_review_worker is not None:
+            return
+        try:
+            settings = get_sync_settings()
+        except ValueError:
+            self._auto_view_timer.stop()
+            return
+        worker = SyncReviewWorker("views", [], str(self.db_path), settings.state_path, self)
+        self._auto_view_worker = worker
+        worker.completed.connect(self._on_auto_view_completed)
+        worker.failed.connect(self._on_auto_view_failed)
+        worker.finished.connect(self._on_auto_view_finished)
+        worker.start()
+
+    def _on_auto_view_completed(self, result: dict) -> None:
+        if result.get("changed"):
+            self.load_data()
+
+    def _on_auto_view_failed(self, message: str) -> None:
+        self._auto_view_timer.stop()
+        self.statusBar().showMessage(message, 10000)
+
+    def _on_auto_view_finished(self) -> None:
+        self._auto_view_worker.deleteLater()
+        self._auto_view_worker = None
 
     def _on_sync_review_dialog_finished(self) -> None:
         if self._sync_review_worker is not None and self._sync_review_worker.isRunning():
@@ -294,7 +345,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         """????????????????"""
         if ((self._sync_preview_worker is not None and self._sync_preview_worker.isRunning())
-                or (self._sync_review_worker is not None and self._sync_review_worker.isRunning())):
+                or (self._sync_review_worker is not None and self._sync_review_worker.isRunning())
+                or (self._auto_view_worker is not None and self._auto_view_worker.isRunning())):
             event.ignore()
             self.statusBar().showMessage("?????????????????", 5000)
             return

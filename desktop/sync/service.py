@@ -11,6 +11,7 @@ from .client import DiaryServerClient, RemoteApiError
 from .downstream import DownstreamConflict, plan_page
 from .local_repository import LocalDiaryConflict, LocalDiaryRepository
 from .reconcile import MappingPlan, canonical_payload, payload_digest, plan_mapping
+from .view_repository import LocalViewRepository, ViewSyncConflict
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,72 @@ class DesktopSyncService:
             raise SyncConflict("本地同步游标恢复失败，未继续拉取") from exc
         logger.info("桌面同步游标已从 SQLite 收据恢复", extra={"request_id": request_id,
                                                      "cursor": after["cursor"]})
+
+    def sync_views(self, repository: LocalViewRepository) -> Dict[str, int]:
+        """先补服务器缺失的电脑历史，再幂等同步两端新增查看。"""
+        request_id = str(uuid4())
+        if not self.state_path.exists() or self.state.get("mapped") is not True:
+            raise SyncConflict("上传查看基线前必须确认 ID 映射")
+        before = deepcopy(self.state)
+        entries = before.get("entries", {})
+        if not isinstance(entries, dict) or not entries:
+            raise SyncConflict("同步映射为空")
+        remote_ids = [entry.get("remote_id") for entry in entries.values() if isinstance(entry, dict)]
+        if (len(remote_ids) != len(entries) or len(set(remote_ids)) != len(entries)
+                or any(not isinstance(remote_id, str) or not remote_id for remote_id in remote_ids)):
+            raise SyncConflict("同步映射损坏")
+
+        def mapped_snapshot() -> Dict[str, Dict[str, Any]]:
+            remote = self._remote_snapshot()
+            by_id = {item.get("id"): item for item in remote}
+            if len(remote) != len(by_id) or any(remote_id not in by_id for remote_id in remote_ids):
+                raise SyncConflict("服务器列表不完整或有重复日记")
+            return {remote_id: by_id[remote_id] for remote_id in remote_ids}
+
+        def mapped_rows(snapshot: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+            rows = []
+            for local_id, entry in entries.items():
+                data = snapshot[entry["remote_id"]]
+                if (not isinstance(local_id, str) or not local_id.isdecimal()
+                        or not entry.get("date") or data.get("deleted_at")
+                        or str(data.get("date", ""))[:10] != entry["date"]):
+                    raise SyncConflict("映射日记已删除或日期变化，需人工审核")
+                rows.append({"local_id": int(local_id), "remote_id": entry["remote_id"],
+                             "date": entry["date"], "view_count": data.get("view_count"),
+                             "last_viewed_at": data.get("last_viewed_at")})
+            return rows
+
+        first = mapped_snapshot()
+        if first != mapped_snapshot() or self._load_state() != before:
+            raise SyncConflict("服务器或本地映射在读取期间变化，请重试")
+        preliminary = mapped_rows(first)
+        self.client.require_idempotent_views()
+        try:
+            baselines = repository.prepare_baselines(preliminary)
+        except ViewSyncConflict as exc:
+            raise SyncConflict("电脑初始查看数据与映射冲突，未上传") from exc
+        for baseline in baselines:
+            self.client.import_view_baseline(
+                baseline["remote_id"], baseline["source_id"],
+                baseline["view_count"], baseline["last_viewed_at"],
+            )
+            repository.acknowledge_baseline(baseline["source_id"])
+        pending = repository.read_pending()
+        for event in pending:
+            entry = entries.get(str(event["local_id"]))
+            if entry is None:
+                raise SyncConflict("待同步查看事件没有经确认的 ID 映射")
+            self.client.record_view(entry["remote_id"], event["event_id"], event["viewed_at"])
+        first = mapped_snapshot()
+        if first != mapped_snapshot() or self._load_state() != before:
+            raise SyncConflict("服务器查看记录或同步映射在读取期间变化，请重试")
+        try:
+            result = repository.merge(mapped_rows(first), acknowledged=pending)
+        except ViewSyncConflict as exc:
+            raise SyncConflict("服务器与电脑查看记录冲突，未清理待同步队列") from exc
+        result["baseline_count"] = sum(item["view_count"] for item in baselines)
+        logger.info("桌面查看历史上传与新事件同步完成", extra={"request_id": request_id, **result})
+        return result
 
     def pull_once(self, repository: LocalDiaryRepository) -> Dict[str, int]:
         """逐页落地已映射的正文/标签更新，优先恢复未完成的游标写入。"""

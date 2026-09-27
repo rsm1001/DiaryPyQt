@@ -69,6 +69,19 @@ class DiaryRepository:
                     last_viewed_at TEXT,
                     FOREIGN KEY (diary_id) REFERENCES diaries(id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS diary_view_baselines (
+                    source_id TEXT PRIMARY KEY,
+                    diary_id TEXT NOT NULL,
+                    view_count INTEGER NOT NULL CHECK(view_count >= 0),
+                    last_viewed_at TEXT,
+                    FOREIGN KEY (diary_id) REFERENCES diaries(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS diary_view_events (
+                    event_id TEXT PRIMARY KEY,
+                    diary_id TEXT NOT NULL,
+                    viewed_at TEXT NOT NULL,
+                    FOREIGN KEY (diary_id) REFERENCES diaries(id) ON DELETE CASCADE
+                );
                 """
             )
 
@@ -165,22 +178,71 @@ class DiaryRepository:
             connection.execute("DELETE FROM diaries WHERE id = ? AND deleted_at IS NOT NULL", (diary_id,))
             return True
 
-    def record_view(self, diary_id: str, viewed_at: str) -> Dict[str, Any]:
+    def record_view(self, diary_id: str, viewed_at: str, event_id: Optional[str] = None) -> Dict[str, Any]:
         with self._connection() as connection:
-            connection.execute(
-                """INSERT INTO diary_views (diary_id, view_count, last_viewed_at)
-                   VALUES (?, 1, ?)
-                   ON CONFLICT(diary_id) DO UPDATE SET
-                       view_count = diary_views.view_count + 1,
-                       last_viewed_at = excluded.last_viewed_at""",
-                (diary_id, viewed_at),
-            )
+            accepted = True
+            if event_id is not None:
+                inserted = connection.execute(
+                    "INSERT OR IGNORE INTO diary_view_events (event_id, diary_id, viewed_at) VALUES (?, ?, ?)",
+                    (event_id, diary_id, viewed_at),
+                )
+                accepted = inserted.rowcount == 1
+                if not accepted:
+                    existing = connection.execute(
+                        "SELECT diary_id FROM diary_view_events WHERE event_id = ?", (event_id,)
+                    ).fetchone()
+                    if existing["diary_id"] != diary_id:
+                        raise ValueError("查看事件 ID 已用于其他日记")
+            if accepted:
+                connection.execute(
+                    """INSERT INTO diary_views (diary_id, view_count, last_viewed_at)
+                       VALUES (?, 1, ?)
+                       ON CONFLICT(diary_id) DO UPDATE SET
+                           view_count = diary_views.view_count + 1,
+                           last_viewed_at = MAX(diary_views.last_viewed_at, excluded.last_viewed_at)""",
+                    (diary_id, viewed_at),
+                )
             row = connection.execute(
                 "SELECT view_count, last_viewed_at FROM diary_views WHERE diary_id = ?",
                 (diary_id,),
             ).fetchone()
             return {"diary_id": diary_id, "view_count": int(row["view_count"]),
                     "viewed_at": row["last_viewed_at"]}
+
+    def import_view_baseline(self, diary_id: str, source_id: str, count: int,
+                             viewed_at: Optional[str]) -> Dict[str, Any]:
+        """初始电脑统计只导入一次，不覆盖服务器新增的查看。"""
+        with self._connection() as connection:
+            inserted = connection.execute(
+                "INSERT OR IGNORE INTO diary_view_baselines "
+                "(source_id, diary_id, view_count, last_viewed_at) VALUES (?, ?, ?, ?)",
+                (source_id, diary_id, count, viewed_at),
+            )
+            if not inserted.rowcount:
+                existing = connection.execute(
+                    "SELECT diary_id, view_count, last_viewed_at FROM diary_view_baselines WHERE source_id = ?",
+                    (source_id,),
+                ).fetchone()
+                if (existing["diary_id"], existing["view_count"], existing["last_viewed_at"]) != (
+                        diary_id, count, viewed_at):
+                    raise ValueError("历史查看基线已导入且与本次不同")
+            else:
+                connection.execute(
+                    """INSERT INTO diary_views (diary_id, view_count, last_viewed_at)
+                       VALUES (?, ?, ?)
+                       ON CONFLICT(diary_id) DO UPDATE SET
+                           view_count = diary_views.view_count + excluded.view_count,
+                           last_viewed_at = CASE
+                               WHEN diary_views.last_viewed_at IS NULL THEN excluded.last_viewed_at
+                               WHEN excluded.last_viewed_at IS NULL THEN diary_views.last_viewed_at
+                               ELSE MAX(diary_views.last_viewed_at, excluded.last_viewed_at) END""",
+                    (diary_id, count, viewed_at),
+                )
+            row = connection.execute(
+                "SELECT view_count, last_viewed_at FROM diary_views WHERE diary_id = ?", (diary_id,)
+            ).fetchone()
+            return {"diary_id": diary_id, "view_count": int(row["view_count"]),
+                    "last_viewed_at": row["last_viewed_at"]}
 
     def view_statistics(self) -> Dict[str, Any]:
         with self._connection() as connection:

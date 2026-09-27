@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 from urllib import error, request
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from uuid import uuid4
 
 from desktop.config.settings import get_sync_settings
@@ -63,6 +63,25 @@ class DiaryServerClient:
         except (error.URLError, TimeoutError) as exc:
             logger.warning("日记服务网络不可用", extra={"request_id": request_id, "path": path})
             raise RemoteApiError("无法连接日记服务") from exc
+
+    def require_idempotent_views(self) -> None:
+        """旧服务端不可接受初始基线与幂等事件。"""
+        health = self._request("GET", "/health")
+        capabilities = health.get("capabilities", [])
+        if ("view_event_idempotent_v1" not in capabilities
+                or "desktop_view_baseline_v1" not in capabilities):
+            raise RemoteApiError("服务端未支持电脑历史基线与幂等事件，未上传数据")
+
+    def import_view_baseline(self, remote_id: str, source_id: str,
+                             view_count: int, last_viewed_at: str | None) -> Dict[str, Any]:
+        """幂等导入电脑的初始查看统计。"""
+        return self._request("POST", f"/api/v1/diaries/{quote(remote_id, safe='')}/view-baselines",
+                             {"source_id": source_id, "view_count": view_count,
+                              "last_viewed_at": last_viewed_at})
+
+    def record_view(self, remote_id: str, event_id: str, viewed_at: str) -> Dict[str, Any]:
+        return self._request("POST", f"/api/v1/diaries/{quote(remote_id, safe='')}/view",
+                             {"event_id": event_id, "viewed_at": viewed_at})
 
     def list_diaries(self, offset: int, limit: int = 100) -> Dict[str, Any]:
         """读取完整日记列表用于首次映射，不能仅依赖增量日志。"""

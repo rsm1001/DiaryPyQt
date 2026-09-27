@@ -6,6 +6,8 @@ from typing import Dict, Any, Optional, List
 import sqlite3
 import logging
 
+from desktop.sync.view_repository import enqueue_local_view
+
 logger = logging.getLogger(__name__)
 
 
@@ -79,6 +81,8 @@ class ViewCountService:
                     new_count = sel_row['view_count'] if sel_row else None
 
                 # 3) 计算今日当前查看数（基于本事务内已插入的 view_log）
+                enqueue_local_view(cursor, diary_id)
+
                 cursor.execute(
                     "SELECT COUNT(*) as count FROM view_log "
                     "WHERE diary_id = ? AND date(viewed_at) = ?",
