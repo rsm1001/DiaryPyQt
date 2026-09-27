@@ -57,4 +57,14 @@ void main() {
     );
     expect(weights['old'], greaterThan(weights['recent'] ?? 0));
   });
+  test('records selection on an immutable empty usage map', () {
+    final firstAt = DateTime.utc(2026, 9, 27);
+    final secondAt = firstAt.add(const Duration(minutes: 1));
+    final first = withRandomSelectionRecorded(const {}, 'a', firstAt);
+    final second = withRandomSelectionRecorded(first, 'a', secondAt);
+    expect(first['a']!.count, 1);
+    expect(second['a']!.count, 2);
+    expect(second['a']!.lastSelectedAt, secondAt);
+    expect(first['a']!.lastSelectedAt, firstAt);
+  });
 }

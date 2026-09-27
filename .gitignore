@@ -38,6 +38,9 @@ downloads/
 eggs/
 .eggs/
 lib/
+# Flutter application source must not be ignored as a Python library folder.
+!/mobile/lib/
+!/mobile/lib/**
 lib64/
 parts/
 sdist/
