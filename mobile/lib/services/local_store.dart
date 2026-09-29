@@ -11,6 +11,10 @@ import '../models/diary_view_result.dart';
 import 'random_selector.dart';
 
 class LocalStore {
+  LocalStore();
+
+  LocalStore.withDatabase(Database database) : _database = database;
+
   Database? _database;
 
   Future<Database> get database async {
@@ -19,18 +23,20 @@ class LocalStore {
     _database = await openDatabase(
       path.join(directory.path, 'diary_mobile.db'),
       version: 1,
-      onCreate: (db, _) async {
-        await db.execute(
-            'CREATE TABLE diaries (id TEXT PRIMARY KEY, json TEXT NOT NULL, version INTEGER NOT NULL, content_hash TEXT NOT NULL)');
-        await db.execute(
-            'CREATE TABLE audio_cache (diary_id TEXT NOT NULL, voice_id TEXT NOT NULL, content_hash TEXT NOT NULL, file_hash TEXT NOT NULL, duration_ms INTEGER NOT NULL, file_path TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY (diary_id, voice_id))');
-        await db.execute(
-            'CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
-        await db.execute(
-            'CREATE TABLE outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id TEXT NOT NULL, action TEXT NOT NULL, base_version INTEGER, json TEXT NOT NULL)');
-      },
+      onCreate: createSchema,
     );
     return _database!;
+  }
+
+  static Future<void> createSchema(Database db, int version) async {
+    await db.execute(
+        'CREATE TABLE diaries (id TEXT PRIMARY KEY, json TEXT NOT NULL, version INTEGER NOT NULL, content_hash TEXT NOT NULL)');
+    await db.execute(
+        'CREATE TABLE audio_cache (diary_id TEXT NOT NULL, voice_id TEXT NOT NULL, content_hash TEXT NOT NULL, file_hash TEXT NOT NULL, duration_ms INTEGER NOT NULL, file_path TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY (diary_id, voice_id))');
+    await db.execute(
+        'CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    await db.execute(
+        'CREATE TABLE outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id TEXT NOT NULL, action TEXT NOT NULL, base_version INTEGER, json TEXT NOT NULL)');
   }
 
   Future<List<Diary>> getDiaries() async {
@@ -65,7 +71,82 @@ class LocalStore {
     );
   }
 
-  Future<void> replaceLocalId(String temporaryId, Diary created, int outboxId) async {
+  Future<int> importDiaries(List<Diary> imports) async {
+    final db = await database;
+    return db.transaction((transaction) async {
+      final rows = await transaction.query('diaries', columns: ['json']);
+      final keys = rows.map((row) {
+        final diary = Diary.fromJson(_decode(row['json'] as String));
+        return jsonEncode([diary.date.trim(), diary.content.trim()]);
+      }).toSet();
+      var imported = 0;
+      for (final diary in imports) {
+        if (!keys.add(jsonEncode([diary.date.trim(), diary.content.trim()]))) {
+          continue;
+        }
+        await transaction.insert('diaries', {
+          'id': diary.id,
+          'json': _encode(diary.toJson()),
+          'version': diary.version,
+          'content_hash': diary.contentHash,
+        });
+        await transaction.insert('outbox', {
+          'entity_id': diary.id,
+          'action': 'create',
+          'base_version': null,
+          'json': _encode({
+            'date': diary.date,
+            'content': diary.content,
+            'tags': diary.tags,
+          }),
+        });
+        imported++;
+      }
+      return imported;
+    });
+  }
+
+  Future<void> saveRemoteDiary(Diary diary) async {
+    final db = await database;
+    await db.transaction((transaction) async {
+      var updated = diary;
+      final pendingViews = await transaction.query('outbox',
+          columns: ['id'],
+          where: 'entity_id = ? AND action = ?',
+          whereArgs: [diary.id, 'view'],
+          limit: 1);
+      if (pendingViews.isNotEmpty) {
+        final rows = await transaction.query('diaries',
+            where: 'id = ?', whereArgs: [diary.id], limit: 1);
+        if (rows.isNotEmpty) {
+          final local = Diary.fromJson(_decode(rows.first['json'] as String));
+          final localTime = DateTime.tryParse(local.lastViewedAt ?? '');
+          final remoteTime = DateTime.tryParse(diary.lastViewedAt ?? '');
+          final lastViewedAt = localTime != null &&
+                  (remoteTime == null || localTime.isAfter(remoteTime))
+              ? local.lastViewedAt
+              : diary.lastViewedAt;
+          updated = diary.copyWith(
+              viewCount: local.viewCount > diary.viewCount
+                  ? local.viewCount
+                  : diary.viewCount,
+              lastViewedAt: lastViewedAt);
+        }
+      }
+      await transaction.insert(
+          'diaries',
+          {
+            'id': updated.id,
+            'json': _encode(updated.toJson()),
+            'version': updated.version,
+            'content_hash': updated.contentHash,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    });
+  }
+
+  Future<void> replaceLocalId(
+      String temporaryId, Diary created, int outboxId) async {
     final db = await database;
     await db.transaction((transaction) async {
       final rows = await transaction.query('diaries',
@@ -74,14 +155,17 @@ class LocalStore {
       final local = Diary.fromJson(_decode(rows.first['json'] as String));
       final merged = created.copyWith(
           viewCount: local.viewCount, lastViewedAt: local.lastViewedAt);
-      await transaction.delete('diaries',
-          where: 'id = ?', whereArgs: [temporaryId]);
-      await transaction.insert('diaries', {
-        'id': created.id,
-        'json': _encode(merged.toJson()),
-        'version': created.version,
-        'content_hash': created.contentHash,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await transaction
+          .delete('diaries', where: 'id = ?', whereArgs: [temporaryId]);
+      await transaction.insert(
+          'diaries',
+          {
+            'id': created.id,
+            'json': _encode(merged.toJson()),
+            'version': created.version,
+            'content_hash': created.contentHash,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace);
       await transaction.update('outbox', {'entity_id': created.id},
           where: 'entity_id = ?', whereArgs: [temporaryId]);
       await transaction.delete('outbox',
@@ -194,8 +278,11 @@ class LocalStore {
       });
       await transaction.update(
         'diaries',
-        {'json': _encode(diary.copyWith(
-            viewCount: diary.viewCount + 1, lastViewedAt: viewedAt).toJson())},
+        {
+          'json': _encode(diary
+              .copyWith(viewCount: diary.viewCount + 1, lastViewedAt: viewedAt)
+              .toJson())
+        },
         where: 'id = ?',
         whereArgs: [diaryId],
       );
@@ -203,15 +290,20 @@ class LocalStore {
     });
   }
 
-  Future<void> ensureViewPayload(int id, String eventId, String viewedAt) async {
+  Future<void> ensureViewPayload(
+      int id, String eventId, String viewedAt) async {
     final db = await database;
-    await db.update('outbox',
-        {'json': _encode({'event_id': eventId, 'viewed_at': viewedAt})},
+    await db.update(
+        'outbox',
+        {
+          'json': _encode({'event_id': eventId, 'viewed_at': viewedAt})
+        },
         where: 'id = ? AND action = ? AND json = ?',
         whereArgs: [id, 'view', _encode(const {})]);
   }
 
-  Future<void> confirmView(int id, String diaryId, DiaryViewResult result) async {
+  Future<void> confirmView(
+      int id, String diaryId, DiaryViewResult result) async {
     final db = await database;
     await db.transaction((transaction) async {
       final rows = await transaction.query('diaries',
@@ -223,13 +315,19 @@ class LocalStore {
                 DateTime.parse(last).isAfter(DateTime.parse(result.viewedAt))
             ? last
             : result.viewedAt;
-        await transaction.update('diaries', {
-          'json': _encode(diary.copyWith(
-              viewCount: diary.viewCount > result.viewCount
-                  ? diary.viewCount
-                  : result.viewCount,
-              lastViewedAt: latest).toJson()),
-        }, where: 'id = ?', whereArgs: [diaryId]);
+        await transaction.update(
+            'diaries',
+            {
+              'json': _encode(diary
+                  .copyWith(
+                      viewCount: diary.viewCount > result.viewCount
+                          ? diary.viewCount
+                          : result.viewCount,
+                      lastViewedAt: latest)
+                  .toJson()),
+            },
+            where: 'id = ?',
+            whereArgs: [diaryId]);
       }
       await transaction.delete('outbox', where: 'id = ?', whereArgs: [id]);
     });

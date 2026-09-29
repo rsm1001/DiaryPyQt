@@ -17,6 +17,7 @@ class Settings:
     audio_root: Path
     default_voice_name: str
     allowed_origins: List[str]
+    audio_generation_timeout_seconds: int = 90
 
 
 def get_settings() -> Settings:
@@ -33,4 +34,7 @@ def get_settings() -> Settings:
         audio_root=Path(os.getenv("DIARY_AUDIO_ROOT", str(default_audio_root))),
         default_voice_name=os.getenv("DIARY_DEFAULT_VOICE_NAME", "zh-CN-XiaoxiaoNeural"),
         allowed_origins=[item.strip() for item in origins.split(",") if item.strip()],
+        audio_generation_timeout_seconds=int(
+            os.getenv("DIARY_AUDIO_GENERATION_TIMEOUT_SECONDS", "90")
+        ),
     )

@@ -61,6 +61,7 @@ class DoublePlaybackService {
   Completer<void>? _gapCompleter;
   Completer<void>? _playCompleter;
   static const _stallTimeout = Duration(seconds: 20);
+  static const _repeatGap = Duration(seconds: 3);
 
   Stream<PlaybackSnapshot> get stateStream => _stateController.stream;
   PlaybackSnapshot get snapshot => _snapshot;
@@ -78,8 +79,8 @@ class DoublePlaybackService {
     _emit(PlaybackStage.buffering, diaryId, 1, Duration.zero,
         position: Duration.zero, duration: firstDuration);
     if (!await _playUntilCompleted(token)) return false;
-    final gap =
-        Duration(milliseconds: (firstDuration.inMilliseconds * 1.2).round());
+    // Keep the repeat gap short; it must not scale with a long diary audio duration.
+    const gap = _repeatGap;
     await _waitGap(diaryId, gap, token);
     if (token != _runToken) return false;
     await _setSource(source, diaryId, asset);

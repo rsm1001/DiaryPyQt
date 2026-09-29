@@ -8,12 +8,19 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import '../models/audio_asset.dart';
 import '../models/diary.dart';
 import 'diary_api.dart';
+import 'diary_transfer.dart';
 import 'local_store.dart';
 
 class SyncManager {
-  SyncManager({required this.api, required this.store});
+  SyncManager({
+    required this.api,
+    required this.store,
+    Future<List<ConnectivityResult>> Function()? checkConnectivity,
+  }) : _checkConnectivity =
+            checkConnectivity ?? Connectivity().checkConnectivity;
   final DiaryApi api;
   final LocalStore store;
+  final Future<List<ConnectivityResult>> Function() _checkConnectivity;
 
   Future<List<Diary>> loadLocal() => store.getDiaries();
 
@@ -22,6 +29,22 @@ class SyncManager {
 
   bool _isNetworkFailure(Object error) =>
       error is DiaryApiException && error.network;
+
+  Future<int> importDiaries(List<DiaryImportEntry> entries) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final diaries = entries
+        .map((entry) => Diary(
+              id: 'local-${_newViewEventId()}',
+              date: entry.date,
+              content: entry.content,
+              contentHash: _contentHash(entry.content),
+              version: 1,
+              tags: entry.tags,
+              updatedAt: now,
+            ))
+        .toList(growable: false);
+    return store.importDiaries(diaries);
+  }
 
   Future<Diary> createDiary({
     required String date,
@@ -63,10 +86,11 @@ class SyncManager {
     try {
       final updated =
           await api.updateDiary(diary, content: content, tags: tags);
-      await store.saveDiary(updated);
+      await store.saveRemoteDiary(updated);
       return updated;
     } catch (error) {
       if (!_isNetworkFailure(error)) rethrow;
+      final cached = await store.getDiary(diary.id);
       final local = Diary(
         id: diary.id,
         date: diary.date,
@@ -75,8 +99,8 @@ class SyncManager {
         version: diary.version,
         tags: List.unmodifiable(tags),
         updatedAt: DateTime.now().toUtc().toIso8601String(),
-        viewCount: diary.viewCount,
-        lastViewedAt: diary.lastViewedAt,
+        viewCount: cached?.viewCount ?? diary.viewCount,
+        lastViewedAt: cached?.lastViewedAt ?? diary.lastViewedAt,
       );
       await store.saveDiary(local);
       await store.enqueueMutation(
@@ -94,8 +118,8 @@ class SyncManager {
     final bytes = List<int>.generate(16, (_) => random.nextInt(256));
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    final hex = bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0'))
-        .join();
+    final hex =
+        bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
         '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
         '${hex.substring(20)}';
@@ -107,8 +131,8 @@ class SyncManager {
     final id = await store.recordViewLocally(diary.id, eventId, viewedAt);
     if (diary.id.startsWith('local-')) return;
     try {
-      final result = await api.recordView(diary,
-          eventId: eventId, viewedAt: viewedAt);
+      final result =
+          await api.recordView(diary, eventId: eventId, viewedAt: viewedAt);
       await store.confirmView(id, diary.id, result);
     } catch (error) {
       if (!_isNetworkFailure(error)) rethrow;
@@ -116,11 +140,32 @@ class SyncManager {
   }
 
   Future<void> deleteDiary(Diary diary) async {
+    final pending = await store.getOutbox();
+    if (diary.id.startsWith('local-')) {
+      final hasCreate = pending.any((item) =>
+          item['entity_id'] == diary.id && item['action'] == 'create');
+      if (!hasCreate) {
+        throw const DiaryApiException('本地新建任务缺失，已停止删除');
+      }
+      await store.enqueueMutation(
+        entityId: diary.id,
+        action: 'delete',
+        baseVersion: diary.version,
+        payload: const {},
+      );
+      return;
+    }
     try {
-      await api.deleteDiary(diary);
+      if (pending.any((item) =>
+          item['entity_id'] == diary.id && item['action'] == 'view')) {
+        await flushPending();
+      }
+      final current = await store.getDiary(diary.id) ?? diary;
+      await api.deleteDiary(current);
       await store.removeDiary(diary.id);
     } catch (error) {
       if (!_isNetworkFailure(error)) rethrow;
+      final cached = await store.getDiary(diary.id);
       final local = Diary(
         id: diary.id,
         date: diary.date,
@@ -129,8 +174,8 @@ class SyncManager {
         version: diary.version,
         tags: diary.tags,
         updatedAt: diary.updatedAt,
-        viewCount: diary.viewCount,
-        lastViewedAt: diary.lastViewedAt,
+        viewCount: cached?.viewCount ?? diary.viewCount,
+        lastViewedAt: cached?.lastViewedAt ?? diary.lastViewedAt,
         deletedAt: DateTime.now().toUtc().toIso8601String(),
       );
       await store.saveDiary(local);
@@ -191,7 +236,7 @@ class SyncManager {
             tags: List<String>.from(
                 payload['tags'] as List<dynamic>? ?? const []),
           );
-          await store.saveDiary(updated);
+          await store.saveRemoteDiary(updated);
         } else if (action == 'delete') {
           await api.deleteDiary(current);
           await store.removeDiary(entityId);
@@ -205,8 +250,10 @@ class SyncManager {
 
   Future<void> flushPending() => _flushOutbox();
 
+  Future<int> pendingCount() async => (await store.getOutbox()).length;
+
   Future<List<Diary>> refresh() async {
-    final connectivity = await Connectivity().checkConnectivity();
+    final connectivity = await _checkConnectivity();
     if (connectivity.contains(ConnectivityResult.none)) {
       return store.getDiaries();
     }
@@ -224,15 +271,23 @@ class SyncManager {
     if (cached != null) return cached;
     final asset = await api.generateAudio(diary.id,
         voiceId: voiceId.isEmpty ? null : voiceId);
-    final bytes = await api.downloadAudio(asset);
-    final actualHash = sha256.convert(bytes).toString();
-    if (asset.fileHash.isNotEmpty && !asset.fileHash.contains(actualHash)) {
-      throw const DiaryApiException('Audio hash validation failed');
-    }
     final directory = await store.audioDirectory();
     final filePath =
         '$directory/${diary.id}_${asset.voiceId}_${diary.contentHash.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_')}.mp3';
-    await File(filePath).writeAsBytes(bytes, flush: true);
+    final partialPath = '$filePath.part';
+    final partialFile = File(partialPath);
+    await api.downloadAudioToFile(asset, partialFile);
+    final bytes = await partialFile.readAsBytes();
+    final actualHash = sha256.convert(bytes).toString();
+    if (asset.fileHash.isNotEmpty && !asset.fileHash.contains(actualHash)) {
+      try {
+        await partialFile.delete();
+      } on FileSystemException {
+        // ?????????????????????
+      }
+      throw const DiaryApiException('Audio hash validation failed');
+    }
+    await partialFile.rename(filePath);
     final saved = asset.copyWith(localPath: filePath);
     await store.saveAudio(saved, filePath);
     return saved;

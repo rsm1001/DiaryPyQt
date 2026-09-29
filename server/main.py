@@ -1,10 +1,11 @@
 """日记后端 FastAPI 入口。"""
-from typing import List, Optional
+from pathlib import Path
+from typing import Iterator, List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from server.audio_provider import EdgeTTSProvider
 from server.audio_repository import AudioRepository
@@ -297,19 +298,86 @@ def list_audio(
     return AudioAssetListResponse(items=[_audio_response(asset) for asset in assets])
 
 
-@router.get("/audio-assets/{asset_id}/download")
+@router.get("/audio-assets/{asset_id}/download", response_model=None)
 def download_audio(
     asset_id: str,
+    request: Request,
     audio_service: AudioService = Depends(get_audio_service),
-) -> FileResponse:
-    """下载已就绪的音频文件。"""
+) -> Response:
+    """????? Range ???????????????????"""
     asset = audio_service.get_asset(asset_id)
-    logger.info("audio_download_requested", extra={"asset_id": asset_id})
-    return FileResponse(
-        asset["file_path"],
-        media_type="audio/mpeg",
-        filename=f"{asset_id}.mp3",
+    path = Path(asset["file_path"])
+    file_size = path.stat().st_size
+    common_headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "ETag": f'"{asset["file_hash"]}"',
+    }
+    range_header = request.headers.get("range")
+    logger.info(
+        "audio_download_requested",
+        extra={"asset_id": asset_id, "range": range_header or "full"},
     )
+    if not range_header:
+        return FileResponse(
+            path,
+            media_type="audio/mpeg",
+            filename=f"{asset_id}.mp3",
+            headers=common_headers,
+        )
+
+    start, end = _parse_byte_range(range_header, file_size)
+    if start is None or end is None:
+        return Response(
+            status_code=416,
+            headers={**common_headers, "Content-Range": f"bytes */{file_size}"},
+        )
+    length = end - start + 1
+    headers = {
+        **common_headers,
+        "Content-Range": f"bytes {start}-{end}/{file_size}",
+        "Content-Length": str(length),
+    }
+    return StreamingResponse(
+        _read_file_range(path, start, length),
+        status_code=206,
+        media_type="audio/mpeg",
+        headers=headers,
+    )
+
+
+def _parse_byte_range(value: str, file_size: int) -> tuple[int | None, int | None]:
+    if not value.startswith("bytes=") or "," in value:
+        return None, None
+    raw = value[6:].strip()
+    if "-" not in raw:
+        return None, None
+    start_text, end_text = raw.split("-", 1)
+    try:
+        if not start_text:
+            suffix = int(end_text)
+            if suffix <= 0:
+                return None, None
+            return max(0, file_size - suffix), file_size - 1
+        start = int(start_text)
+        end = file_size - 1 if not end_text else int(end_text)
+    except ValueError:
+        return None, None
+    if start < 0 or start >= file_size or end < start:
+        return None, None
+    return start, min(end, file_size - 1)
+
+
+def _read_file_range(path: Path, start: int, length: int) -> Iterator[bytes]:
+    with path.open("rb") as stream:
+        stream.seek(start)
+        remaining = length
+        while remaining > 0:
+            chunk = stream.read(min(1024 * 1024, remaining))
+            if not chunk:
+                return
+            remaining -= len(chunk)
+            yield chunk
 
 
 def create_app(
@@ -329,6 +397,7 @@ def create_app(
         provider=EdgeTTSProvider(),
         audio_root=active_settings.audio_root,
         default_voice_name=active_settings.default_voice_name,
+        generation_timeout_seconds=active_settings.audio_generation_timeout_seconds,
     )
     app = FastAPI(title="Diary Server", version="1.0.0")
     app.state.diary_service = active_service

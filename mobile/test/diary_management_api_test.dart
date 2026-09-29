@@ -64,7 +64,8 @@ void main() {
     await expectLater(
       api.updateDiary(diary, content: 'offline edit', tags: ['work']),
       throwsA(isA<DiaryApiException>()
-          .having((error) => error.message, 'message', isNotEmpty)),
+          .having((error) => error.message, 'message', isNotEmpty)
+          .having((error) => error.conflict, 'conflict', isTrue)),
     );
     api.dispose();
   });
@@ -75,14 +76,14 @@ void main() {
       client: MockClient((request) async {
         sent = request;
         return http.Response.bytes(
-            utf8.encode(jsonEncode({
-              'diary_id': 'entry-id',
-              'view_count': 7,
-              'viewed_at': '2026-09-26T00:00:00Z'
-            })),
-            200,
-            headers: {'content-type': 'application/json; charset=utf-8'},
-          );
+          utf8.encode(jsonEncode({
+            'diary_id': 'entry-id',
+            'view_count': 7,
+            'viewed_at': '2026-09-26T00:00:00Z'
+          })),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
       }),
       baseUrl: 'https://example.invalid',
     );

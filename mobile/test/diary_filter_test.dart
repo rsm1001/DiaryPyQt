@@ -24,4 +24,30 @@ void main() {
     expect(filterDiaries(diaries, '阅读', '工作'), isEmpty);
     expect(diaries.length, 2);
   });
+  test('advanced search combines date, view range and tag without mutation',
+      () {
+    final old = entry('old', 'text old', ['work']).copyWith(viewCount: 3);
+    final recent = Diary(
+      id: 'new',
+      date: '2026-09-29',
+      content: 'text new',
+      contentHash: 'hash',
+      version: 1,
+      tags: const ['work'],
+      updatedAt: '2026-09-29',
+      viewCount: 8,
+    );
+    final all = [old, recent];
+    final options = DiarySearchOptions(
+      from: DateTime(2026, 9, 27),
+      to: DateTime(2026, 9, 29),
+      minViews: 5,
+      maxViews: 8,
+    );
+    expect(
+        filterDiaries(all, 'text', 'work', options: options)
+            .map((diary) => diary.id),
+        ['new']);
+    expect(all, hasLength(2));
+  });
 }

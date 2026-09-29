@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:developer' as developer;
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -12,10 +13,19 @@ import '../models/diary_view_result.dart';
 import '../models/diary_tag.dart';
 import '../models/server_statistics.dart';
 
+class AudioDownloadChunk {
+  const AudioDownloadChunk({required this.bytes, required this.partial});
+
+  final Uint8List bytes;
+  final bool partial;
+}
+
 class DiaryApiException implements Exception {
-  const DiaryApiException(this.message, {this.network = false});
+  const DiaryApiException(this.message,
+      {this.network = false, this.conflict = false});
   final String message;
   final bool network;
+  final bool conflict;
   @override
   String toString() => message;
 }
@@ -37,6 +47,7 @@ class DiaryApi {
                   'Basic ${base64Encode(utf8.encode('diary:$_password'))}'
             };
   static const _timeout = Duration(seconds: 12);
+  static const _audioGenerationTimeout = Duration(seconds: 90);
 
   Future<void> checkConnection() async {
     try {
@@ -270,25 +281,74 @@ class DiaryApi {
   }
 
   Future<AudioAsset> generateAudio(String diaryId, {String? voiceId}) async {
-    final response = await _client.post(
-        Uri.parse('$_baseUrl/api/v1/diaries/$diaryId/audio/generate'),
-        headers: {..._authHeaders, 'Content-Type': 'application/json'},
-        body: jsonEncode({'voice_id': voiceId}));
-    _ensureSuccess(response);
-    return AudioAsset.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>, _baseUrl);
+    return _networkSafe(() async {
+      final response = await _client
+          .post(Uri.parse('$_baseUrl/api/v1/diaries/$diaryId/audio/generate'),
+              headers: {..._authHeaders, 'Content-Type': 'application/json'},
+              body: jsonEncode({'voice_id': voiceId}))
+          .timeout(_audioGenerationTimeout);
+      _ensureSuccess(response);
+      return AudioAsset.fromJson(
+          jsonDecode(response.body) as Map<String, dynamic>, _baseUrl);
+    });
   }
 
-  Future<Uint8List> downloadAudio(AudioAsset asset) async {
+  Future<Uint8List> downloadAudio(AudioAsset asset) async =>
+      (await downloadAudioChunk(asset)).bytes;
+
+  Future<AudioDownloadChunk> downloadAudioChunk(
+    AudioAsset asset, {
+    int startAt = 0,
+  }) async {
     if (Uri.parse(asset.downloadUrl).origin != Uri.parse(_baseUrl).origin) {
       throw const DiaryApiException(
           'Audio download host does not match the diary server');
     }
+    final headers = {
+      ..._authHeaders,
+      if (startAt > 0) 'Range': 'bytes=$startAt-',
+    };
     final response = await _client
-        .get(Uri.parse(asset.downloadUrl), headers: _authHeaders)
+        .get(Uri.parse(asset.downloadUrl), headers: headers)
         .timeout(const Duration(minutes: 3));
     _ensureSuccess(response);
-    return response.bodyBytes;
+    return AudioDownloadChunk(
+      bytes: response.bodyBytes,
+      partial: response.statusCode == 206,
+    );
+  }
+
+  Future<void> downloadAudioToFile(AudioAsset asset, File target) async {
+    if (Uri.parse(asset.downloadUrl).origin != Uri.parse(_baseUrl).origin) {
+      throw const DiaryApiException(
+          'Audio download host does not match the diary server');
+    }
+    final offset = await target.exists() ? await target.length() : 0;
+    final request = http.Request('GET', Uri.parse(asset.downloadUrl));
+    request.headers.addAll({
+      ..._authHeaders,
+      if (offset > 0) 'Range': 'bytes=$offset-',
+    });
+    final response =
+        await _client.send(request).timeout(const Duration(minutes: 3));
+    if (response.statusCode != 200 && response.statusCode != 206) {
+      final failed = await http.Response.fromStream(response);
+      _ensureSuccess(failed);
+      return;
+    }
+    final append = offset > 0 && response.statusCode == 206;
+    final sink = target.openWrite(
+      mode: append ? FileMode.append : FileMode.write,
+    );
+    try {
+      await for (final chunk
+          in response.stream.timeout(const Duration(minutes: 3))) {
+        sink.add(chunk);
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
   }
 
   Future<Map<String, dynamic>> pull(int cursor) async {
@@ -316,7 +376,7 @@ class DiaryApi {
           'Authentication failed: update the connection password in server settings');
     }
     if (response.statusCode == 409) {
-      throw const DiaryApiException('日记版本冲突，请刷新后再操作');
+      throw const DiaryApiException('日记版本冲突，请刷新后再操作', conflict: true);
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw DiaryApiException(

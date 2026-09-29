@@ -67,4 +67,82 @@ void main() {
     expect(second['a']!.lastSelectedAt, secondAt);
     expect(first['a']!.lastSelectedAt, firstAt);
   });
+
+  test('????????????????', () {
+    const selector = WeightedRandomSelector();
+    final now = DateTime.utc(2026, 9, 27, 12);
+    final equalA = diary('a', '2020-01-01').copyWith(viewCount: 2);
+    final equalB = diary('b', '2020-01-01').copyWith(viewCount: 2);
+    final recent = diary('c', '2026-09-27').copyWith(
+      viewCount: 8,
+      lastViewedAt: now.toIso8601String(),
+    );
+    final weights =
+        selector.calculateWeights([equalA, recent, equalB], now: now);
+    expect(weights['a'], weights['b']);
+    expect(weights['a'], greaterThan(weights['c'] ?? 0));
+  });
+
+  test('?????????????????????', () {
+    const selector = WeightedRandomSelector();
+    final now = DateTime.utc(2026, 9, 27, 12);
+    for (final count in [0, 5]) {
+      final items = [
+        diary('a', '2020-01-01').copyWith(viewCount: count),
+        diary('b', '2020-01-01').copyWith(viewCount: count),
+        diary('c', '2020-01-01').copyWith(viewCount: count),
+      ];
+      final weights = selector.calculateWeights(items, now: now);
+      final reversed =
+          selector.calculateWeights(items.reversed.toList(), now: now);
+      expect(weights.values.toSet(), hasLength(1));
+      expect(weights.values.first, greaterThan(0));
+      expect(reversed, weights);
+    }
+  });
+
+  test('?????????????????????', () {
+    const selector = WeightedRandomSelector();
+    final now = DateTime.utc(2026, 9, 27, 12);
+    final monthAgo = now.subtract(const Duration(days: 30));
+    final current = diary('recent', '2020-01-01').copyWith(
+      viewCount: 3,
+      lastViewedAt: now.subtract(const Duration(minutes: 1)).toIso8601String(),
+    );
+    final old = diary('old', '2020-01-01').copyWith(
+      viewCount: 3,
+      lastViewedAt: monthAgo.toIso8601String(),
+    );
+    final weights = selector.calculateWeights(
+      [current, old],
+      usage: {'recent': RandomUsage(count: 1, lastSelectedAt: monthAgo)},
+      now: now,
+    );
+    expect(weights['old'], greaterThan(weights['recent'] ?? 0));
+  });
+
+  test('??????????????????????', () {
+    const selector = WeightedRandomSelector();
+    final now = DateTime.utc(2026, 9, 27, 12);
+    final monthAgo = now.subtract(const Duration(days: 30));
+    final current = diary('recent', '2020-01-01').copyWith(
+      viewCount: 3,
+      lastViewedAt: monthAgo.toIso8601String(),
+    );
+    final old = diary('old', '2020-01-01').copyWith(
+      viewCount: 3,
+      lastViewedAt: monthAgo.toIso8601String(),
+    );
+    final weights = selector.calculateWeights(
+      [current, old],
+      usage: {
+        'recent': RandomUsage(
+          count: 1,
+          lastSelectedAt: now.subtract(const Duration(minutes: 1)),
+        ),
+      },
+      now: now,
+    );
+    expect(weights['old'], greaterThan(weights['recent'] ?? 0));
+  });
 }

@@ -46,10 +46,14 @@ class WeightedRandomSelector {
       final item =
           usage[diary.id] ?? const RandomUsage(count: 0, lastSelectedAt: null);
       final effectiveCount = max(diary.viewCount, item.count);
-      final referenceText = item.lastSelectedAt?.toIso8601String() ??
-          diary.lastViewedAt ??
-          diary.date;
-      final reference = DateTime.tryParse(referenceText) ?? current;
+      final serverViewedAt = DateTime.tryParse(diary.lastViewedAt ?? '');
+      final selectedAt = item.lastSelectedAt;
+      final recentView = selectedAt == null
+          ? serverViewedAt
+          : serverViewedAt == null || selectedAt.isAfter(serverViewedAt)
+              ? selectedAt
+              : serverViewedAt;
+      final reference = recentView ?? DateTime.tryParse(diary.date) ?? current;
       final daysAgo = max(0, current.difference(reference).inDays);
       return _WeightDetail(
         diary: diary,
@@ -61,13 +65,9 @@ class WeightedRandomSelector {
 
     final byTime = [...details]..sort((a, b) => a.timeRaw.compareTo(b.timeRaw));
     final byCount = [...details]..sort((a, b) => a.count.compareTo(b.count));
-    final timeNorm = <String, double>{};
-    final countNorm = <String, double>{};
-    for (var index = 0; index < details.length; index++) {
-      timeNorm[byTime[index].diary.id] = index / (details.length - 1);
-      countNorm[byCount[index].diary.id] =
-          (details.length - 1 - index) / (details.length - 1);
-    }
+    final timeNorm = _normalizedRanks(byTime, (detail) => detail.timeRaw);
+    final countNorm =
+        _normalizedRanks(byCount, (detail) => detail.count, reversed: true);
     final maxCount = details.map((item) => item.count).reduce(max);
     return {
       for (final item in details)
@@ -75,6 +75,27 @@ class WeightedRandomSelector {
             countNorm[item.diary.id]! +
             (item.count == 0 && maxCount > 0 ? 0.5 : 0),
     };
+  }
+
+  Map<String, double> _normalizedRanks(
+    List<_WeightDetail> sorted,
+    num Function(_WeightDetail) value, {
+    bool reversed = false,
+  }) {
+    final ranks = <String, double>{};
+    for (var start = 0; start < sorted.length;) {
+      var end = start + 1;
+      while (
+          end < sorted.length && value(sorted[end]) == value(sorted[start])) {
+        end++;
+      }
+      final rank = (start + end - 1) / (2 * (sorted.length - 1));
+      for (var index = start; index < end; index++) {
+        ranks[sorted[index].diary.id] = reversed ? 1 - rank : rank;
+      }
+      start = end;
+    }
+    return ranks;
   }
 
   Diary? select(

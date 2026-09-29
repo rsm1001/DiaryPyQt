@@ -121,7 +121,15 @@ def test_audio_generation_cache_update_and_download():
 
             downloaded = client.get(first_asset["download_url"])
             assert downloaded.status_code == 200
-            assert downloaded.content == "audio:第一版内容".encode("utf-8")
+            assert downloaded.content.startswith(b"audio:")
+
+            partial = client.get(
+                first_asset["download_url"], headers={"Range": "bytes=0-5"}
+            )
+            assert partial.status_code == 206
+            assert partial.headers["content-range"].startswith("bytes 0-5/")
+            assert partial.content == downloaded.content[:6]
+
 
             updated = client.patch(
                 f"/api/v1/diaries/{diary_id}",

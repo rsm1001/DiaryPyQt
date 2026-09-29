@@ -1,4 +1,5 @@
 """日记音频业务服务。"""
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -24,12 +25,14 @@ class AudioService:
         provider: TTSProvider,
         audio_root: Path,
         default_voice_name: str,
+        generation_timeout_seconds: int = 90,
     ):
         self.diary_service = diary_service
         self.audio_repository = audio_repository
         self.provider = provider
         self.audio_root = Path(audio_root)
         self.default_voice_name = default_voice_name
+        self.generation_timeout_seconds = generation_timeout_seconds
         self.audio_root.mkdir(parents=True, exist_ok=True)
         self._ensure_default_voice()
 
@@ -108,7 +111,10 @@ class AudioService:
             }
         )
         try:
-            duration_ms = await self.provider.synthesize(diary["content"], temp_path, voice)
+            duration_ms = await asyncio.wait_for(
+                self.provider.synthesize(diary["content"], temp_path, voice),
+                timeout=self.generation_timeout_seconds,
+            )
             temp_path.replace(output_path)
             file_hash = self._file_hash(output_path)
             result = self.audio_repository.mark_ready(record["id"], duration_ms, file_hash)
