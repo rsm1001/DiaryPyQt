@@ -3,9 +3,12 @@ i18n 核心模块 - gettext 封装
 """
 import gettext
 import locale
+import logging
 import os
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # 翻译对象，初始为 None
 _translator = None
@@ -69,8 +72,9 @@ def init_i18n(lang=None):
             languages=[lang],
             fallback=True  # 找不到时回退到 msgid (英文原文)
         )
-    except Exception as e:
-        print(f"Warning: Failed to load translation for {lang}: {e}")
+    except Exception:
+        # 这里不是请求级操作，不编造 request_id；语言标识已足够定位问题
+        logger.warning("翻译加载失败，已回退到原文", extra={"language": lang}, exc_info=True)
         _translator = gettext.NullTranslations()
 
     # 安装 _ 函数到内置命名空间

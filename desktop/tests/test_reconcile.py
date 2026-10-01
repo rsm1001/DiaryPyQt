@@ -1,4 +1,4 @@
-"""首次映射只允许无歧义的一对一配对，且上传必须先检查下行变更。"""
+"""首次映射只允许无歧义的一对一配对。"""
 import hashlib
 import json
 
@@ -20,11 +20,9 @@ def remote(diary_id, content, tags=None):
 
 
 class FakeClient:
-    def __init__(self, diaries, pending=False):
+    def __init__(self, diaries):
         self.diaries = diaries
-        self.pending = pending
         self.list_offsets = []
-        self.pushed = []
 
     def list_diaries(self, offset, limit=100):
         self.list_offsets.append(offset)
@@ -37,14 +35,6 @@ class FakeClient:
             items.extend(batch)
             if len(batch) < 100:
                 return items
-    def pull(self, cursor):
-        if self.pending:
-            return {"items": [{"change": {"entity_id": "elsewhere"}}], "next_cursor": cursor + 1}
-        return {"items": [], "next_cursor": cursor}
-
-    def push(self, operations):
-        self.pushed.extend(operations)
-        return {"items": []}
 
 
 def test_exact_mapping_requires_matching_tags_and_unique_identity():
@@ -79,7 +69,6 @@ def test_first_mapping_is_atomic_and_does_not_skip_remote_history(tmp_path):
     assert json.loads(state_path.read_text(encoding="utf-8")) == {
         "cursor": 0, "entries": plan.matches, "mapped": True,
     }
-    assert client.pushed == []
     with pytest.raises(SyncConflict, match="已有同步状态"):
         service.initialize_mapping([local(3, "正文", ["标签"])])
 
@@ -90,7 +79,6 @@ def test_mismatch_does_not_write_mapping(tmp_path):
     with pytest.raises(SyncConflict, match="人工核对"):
         service.initialize_mapping([local(1, "正文")])
     assert not service.state_path.exists()
-    assert client.pushed == []
 
 
 def test_existing_broken_state_never_resets_to_empty(tmp_path):
@@ -100,15 +88,6 @@ def test_existing_broken_state_never_resets_to_empty(tmp_path):
         DesktopSyncService(FakeClient([]), path)
     assert path.read_text(encoding="utf-8") == "{broken"
 
-
-def test_pending_downstream_change_blocks_upload_before_any_write(tmp_path):
-    client = FakeClient([], pending=True)
-    service = DesktopSyncService(client, tmp_path / "state.json")
-    with pytest.raises(SyncConflict, match="未写入本地"):
-        service.sync_once([local(1, "正文")])
-    assert client.pushed == []
-    assert service.state["cursor"] == 0
-    assert not service.state_path.exists()
 
 class ChangingClient(FakeClient):
     def __init__(self, diaries):
@@ -137,14 +116,6 @@ def test_bad_remote_content_hash_cannot_be_mapped(tmp_path):
     with pytest.raises(ValueError, match="哈希异常"):
         service.initialize_mapping([local(1, "正文")])
     assert not service.state_path.exists()
-
-
-def test_existing_server_blocks_unmapped_legacy_upload(tmp_path):
-    client = FakeClient([remote("already-here", "正文")])
-    service = DesktopSyncService(client, tmp_path / "state.json")
-    with pytest.raises(SyncConflict, match="映射未经验证"):
-        service.sync_once([local(1, "正文")])
-    assert client.pushed == []
 
 
 def test_snapshot_paginates_all_existing_remote_diaries(tmp_path):

@@ -1,11 +1,16 @@
 """
 标签选择组件 - 可重用的标签选择控件
 """
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
-                            QScrollArea, QCheckBox, QPushButton, QInputDialog, 
+import logging
+from uuid import uuid4
+
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
+                            QScrollArea, QCheckBox, QPushButton, QInputDialog,
                             QMessageBox, QListWidget, QListWidgetItem)
 from PyQt6.QtCore import Qt, pyqtSignal
 from widgets.layouts.flow_layout import FlowLayout
+
+logger = logging.getLogger(__name__)
 
 
 class TagSelectorWidget(QWidget):
@@ -198,9 +203,11 @@ class TagSelectorWidget(QWidget):
                         deleted_count += 1
                     else:
                         failed_count += 1
-                except Exception as e:
+                except Exception:
+                    # 单个标签删除失败不影响其余标签，详情只进日志不回显给用户
                     failed_count += 1
-                    print(f"删除标签失败: {e}")
+                    logger.exception("删除标签失败", extra={"request_id": str(uuid4()),
+                                                          "tag_id": tag.get("id")})
 
             QMessageBox.information(self, "删除结果", 
                                    f"删除完成！\n成功删除: {deleted_count} 个\n失败: {failed_count} 个")

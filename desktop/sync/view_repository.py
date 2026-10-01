@@ -141,13 +141,13 @@ class LocalViewRepository:
             connection.close()
 
     def acknowledge_baseline(self, source_id: str) -> None:
-        """??????????????????????????"""
+        """标记历史基线已上传，避免每次后台同步重复导入。"""
         with sqlite3.connect(str(self.db_path)) as connection:
             frozen = connection.execute(
                 "SELECT 1 FROM desktop_view_baseline WHERE source_id = ?", (source_id,)
             ).fetchone()
             if frozen is None:
-                raise ViewSyncConflict("?????????????????")
+                raise ViewSyncConflict("历史基线未冻结，拒绝标记为已上传")
             connection.execute(
                 "INSERT OR IGNORE INTO desktop_view_baseline_ack (source_id) VALUES (?)",
                 (source_id,),

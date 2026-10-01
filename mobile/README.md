@@ -85,3 +85,10 @@ flutter build apk --release --dart-define=DIARY_API_BASE_URL=https://203.195.195
 - Import creates fresh local IDs and saves new diaries and outbox jobs in one SQLite transaction, so it works offline. Original IDs and historical view counts are deliberately **not** restored, avoiding duplicate server views; do not use this import as a historical view-statistics migration.
 - Android document picker/save dialog must be validated on a real device when available. The JSON size limit is 5 MB and import batch limit is 2,000 entries.
 - After mobile changes, run `flutter analyze`, `flutter test`, and rebuild **both** Debug and Release APKs. APK builds do not publish or install the app automatically.
+
+## Batch tagging (2026-09-29)
+
+- Long-press one or more diaries in the list, tap the tag icon, then choose **Add**, **Remove**, or **Replace**. Replacing with an empty tag list clears tags and is explicitly labelled as destructive in the dialog.
+- All selected cached diary changes and their outgoing mutations are committed in **one SQLite transaction**; missing/deleted selections or an incompatible queued delete roll back the entire operation. Existing view counts, dates, content, content hashes, and pending view events are preserved.
+- The operation works offline. Pending local creates stay one `create` job; pending edits reuse their original version and one `update` job. Online sync retries normally; HTTP 409 preserves the local changes and outbox for review instead of overwriting the server.
+- The number of changed diaries is shown after the operation. Validate the tag dialog and offline/online conflict flow on a real Android device when available.

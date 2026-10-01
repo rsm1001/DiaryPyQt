@@ -1,47 +1,12 @@
 """日记后端基础和音频接口测试。"""
-from pathlib import Path
 from tempfile import TemporaryDirectory
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from server.audio_repository import AudioRepository
-from server.audio_service import AudioService
-from server.config.settings import Settings
 from server.main import create_app
 from server.repository import DiaryRepository
-from server.service import DiaryService
-
-
-class FakeTTSProvider:
-    """写入可验证的测试音频内容。"""
-
-    async def synthesize(self, text, output_path, voice):
-        output_path.write_bytes(f"audio:{text}".encode("utf-8"))
-        return 1234
-
-
-def build_settings(temp_dir):
-    """创建测试配置。"""
-    return Settings(
-        host="test-host",
-        port=8010,
-        db_path=Path(temp_dir) / "diary.db",
-        audio_root=Path(temp_dir) / "audio",
-        default_voice_name="test-voice",
-        allowed_origins=["*"],
-    )
-
-
-def build_audio_service(settings):
-    """创建使用测试 TTS 的音频服务。"""
-    diary_service = DiaryService(DiaryRepository(settings.db_path))
-    return diary_service, AudioService(
-        diary_service=diary_service,
-        audio_repository=AudioRepository(settings.db_path),
-        provider=FakeTTSProvider(),
-        audio_root=settings.audio_root,
-        default_voice_name=settings.default_voice_name,
-    )
+from server.tests.support import build_audio_service, build_settings
 
 
 def test_diary_crud_and_version_conflict():
@@ -146,13 +111,13 @@ def test_audio_generation_cache_update_and_download():
 
 
 def test_sync_and_playback_records():
-    """?????????????????"""
+    """日记创建后应产生同步变更，并支持播放进度上报。"""
     with TemporaryDirectory() as temp_dir:
         settings = build_settings(temp_dir)
         with TestClient(create_app(settings=settings)) as client:
             created = client.post(
                 "/api/v1/diaries",
-                json={"date": "2026-09-25", "content": "????", "tags": []},
+                json={"date": "2026-09-25", "content": "同步测试正文", "tags": []},
             )
             assert created.status_code == 201
             diary = created.json()
@@ -179,7 +144,7 @@ def test_sync_and_playback_records():
                     "operations": [{
                         "entity_type": "diary", "entity_id": diary_id, "action": "upsert",
                         "base_version": 1,
-                        "data": {"date": "2026-09-25", "content": "????", "tags": []},
+                        "data": {"date": "2026-09-25", "content": "同步测试正文", "tags": []},
                     }]
                 },
             )

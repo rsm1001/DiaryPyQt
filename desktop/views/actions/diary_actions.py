@@ -6,7 +6,6 @@
 薄薄的委托方法。
 """
 import logging
-from typing import Optional
 
 from PyQt6.QtWidgets import QDialog
 
@@ -54,7 +53,7 @@ class DiaryActions:
             return
         selected_tag_ids = dialog.get_selected_tag_ids()
         diary = self._window.controller.add_diary(content, selected_tag_ids)
-        self._window.load_data()
+        self._refresh_after_change()
         logger.info("新建日记完成")
 
     def random_view(self) -> None:
@@ -82,7 +81,7 @@ class DiaryActions:
             result = DiaryActionHelper.confirm_random_delete(self._window, diary)
             if result == 'yes':
                 self._window.controller.delete_diary_by_id(diary.id)
-                self._window.load_data()
+                self._refresh_after_change()
                 DiaryActionHelper.show_delete_success(self._window, diary.id)
                 logger.info("删除日记: id=%s", diary.id)
                 return
@@ -125,7 +124,7 @@ class DiaryActions:
         self._window.controller.update_diary(
             diary.id, content, dialog.get_selected_tag_ids()
         )
-        self._window.load_data()
+        self._refresh_after_change()
 
     def delete_selected(self) -> None:
         """删除选中日记"""
@@ -135,7 +134,7 @@ class DiaryActions:
         if not DiaryActionHelper.confirm_delete(self._window, diary):
             return
         self._window.controller.delete_diary_by_id(diary.id)
-        self._window.load_data()
+        self._refresh_after_change()
         DiaryActionHelper.show_delete_success(self._window, diary.id)
 
     # ------------------------------------------------------------------
@@ -151,7 +150,7 @@ class DiaryActions:
         result = self._window.controller.batch_delete_diaries(
             [d.id for d in diaries]
         )
-        self._window.load_data()
+        self._refresh_after_change()
         DiaryActionHelper.show_batch_result(
             self._window, result["succeeded"], result["failed"], "删除"
         )
@@ -170,7 +169,7 @@ class DiaryActions:
         result = self._window.controller.batch_assign_tags(
             [d.id for d in diaries], list(selected_tag_ids)
         )
-        self._window.load_data()
+        self._refresh_after_change()
         DiaryActionHelper.show_batch_result(
             self._window, result["succeeded"], result["failed"], "更新"
         )
@@ -178,6 +177,11 @@ class DiaryActions:
     # ------------------------------------------------------------------
     # 内部工具
     # ------------------------------------------------------------------
+    def _refresh_after_change(self) -> None:
+        """本地改动后刷新列表并请求一轮同步（同步器内部带去抖）。"""
+        self._window.load_data()
+        self._window.request_content_sync()
+
     def _get_single_selected_diary(self):
         """获取单选日记；无选或多选时统一给出提示并返回 None"""
         selected = self._window.table_manager.get_selected_rows()

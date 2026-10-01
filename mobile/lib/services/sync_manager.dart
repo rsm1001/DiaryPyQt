@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:math';
 
@@ -7,6 +8,8 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 
 import '../models/audio_asset.dart';
 import '../models/diary.dart';
+import '../tags/batch_tag_policy.dart';
+import '../tags/batch_tag_repository.dart';
 import 'diary_api.dart';
 import 'diary_transfer.dart';
 import 'local_store.dart';
@@ -44,6 +47,23 @@ class SyncManager {
             ))
         .toList(growable: false);
     return store.importDiaries(diaries);
+  }
+
+  Future<int> batchTagDiaries(
+    Set<String> diaryIds,
+    List<String> tags,
+    BatchTagMode mode,
+  ) async {
+    final count = await store.batchUpdateTags(diaryIds, tags, mode);
+    developer.log(
+        jsonEncode({
+          'request_id': DateTime.now().microsecondsSinceEpoch.toString(),
+          'operation': 'batch_tag_diaries',
+          'mode': mode.name,
+          'changed': count,
+        }),
+        name: 'diary.mobile');
+    return count;
   }
 
   Future<Diary> createDiary({

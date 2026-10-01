@@ -48,13 +48,13 @@ class SyncService:
                     continue
                 if base_version is None and not same_payload:
                     raise ServiceError(
-                        "DIARY_VERSION_CONFLICT", "?? ID ????????", 409,
+                        "DIARY_VERSION_CONFLICT", "该 ID 已被其他内容占用", 409,
                         {"server_version": current["version"], "server_data": current},
                     )
             if current and base_version is not None and current["version"] != base_version:
                 raise ServiceError(
                     "DIARY_VERSION_CONFLICT",
-                    "??????",
+                    "日记版本冲突",
                     409,
                     {"server_version": current["version"], "server_data": current},
                 )

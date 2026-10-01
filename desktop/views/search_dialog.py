@@ -8,7 +8,10 @@
   ``utils.text_highlighter`` 构造 HTML 片段
 """
 
+import logging
 from html import escape
+from uuid import uuid4
+
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
                             QWidget, QListWidget, QListWidgetItem, QLabel,
                             QLineEdit, QPushButton, QGroupBox,
@@ -20,6 +23,8 @@ from views.dialogs.base_dialog import CenteredDialogMixin, ContextMenuMixin
 
 from i18n import _
 from utils.text_highlighter import build_snippet, highlight_text, count_hits
+
+logger = logging.getLogger(__name__)
 
 
 # 高亮摘要的整体 HTML 样式（标题 + 摘要两行）
@@ -403,9 +408,11 @@ class SearchDialog(QDialog, CenteredDialogMixin, ContextMenuMixin):
                         deleted_count += 1
                     else:
                         failed_count += 1
-                except Exception as e:
+                except Exception:
+                    # 单个标签删除失败不影响其余标签，详情只进日志不回显给用户
                     failed_count += 1
-                    print("删除标签失败: {}".format(e))
+                    logger.exception("删除标签失败", extra={"request_id": str(uuid4()),
+                                                          "tag_id": tag.get("id")})
 
             QMessageBox.information(
                 self, _("删除结果"),

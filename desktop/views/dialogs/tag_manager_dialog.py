@@ -1,6 +1,9 @@
 """
 标签管理对话框组件 - 处理标签相关的UI和逻辑
 """
+import logging
+from uuid import uuid4
+
 from PyQt6.QtWidgets import (QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                             QScrollArea, QWidget, QGroupBox, QLineEdit,
                             QCheckBox, QMessageBox, QInputDialog)
@@ -8,6 +11,8 @@ from PyQt6.QtCore import Qt
 from widgets.layouts.flow_layout import FlowLayout
 
 from i18n import _
+
+logger = logging.getLogger(__name__)
 
 
 class TagManagerMixin:
@@ -183,9 +188,11 @@ class TagManagerMixin:
                         deleted_count += 1
                     else:
                         failed_count += 1
-                except Exception as e:
+                except Exception:
+                    # 单个标签删除失败不影响其余标签，详情只进日志不回显给用户
                     failed_count += 1
-                    print(f"删除标签失败: {e}")
+                    logger.exception("删除标签失败", extra={"request_id": str(uuid4()),
+                                                          "tag_id": tag.get("id")})
             
             QMessageBox.information(self, _("删除结果"),
                                    f"{_('删除完成！')}\n{_('成功删除:')} {deleted_count} {_('个')}\n{_('失败:')} {failed_count} {_('个')}")

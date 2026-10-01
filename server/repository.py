@@ -343,7 +343,7 @@ class DiaryRepository:
     def create_tag(self, name: str) -> Dict[str, Any]:
         normalized = name.strip()
         if not normalized:
-            raise ValueError("????????")
+            raise ValueError("标签名不能为空")
         with self._connection() as connection:
             existing = connection.execute(
                 "SELECT id, name, created_at FROM tags WHERE name = ?", (normalized,)
@@ -363,14 +363,14 @@ class DiaryRepository:
     def update_tag(self, tag_id: str, name: str) -> Optional[Dict[str, Any]]:
         normalized = name.strip()
         if not normalized:
-            raise ValueError("????????")
+            raise ValueError("标签名不能为空")
         with self._connection() as connection:
             try:
                 cursor = connection.execute(
                     "UPDATE tags SET name = ? WHERE id = ?", (normalized, tag_id)
                 )
             except sqlite3.IntegrityError as exc:
-                raise ValueError("???????") from exc
+                raise ValueError("标签名已存在") from exc
             if cursor.rowcount == 0:
                 return None
             row = connection.execute(

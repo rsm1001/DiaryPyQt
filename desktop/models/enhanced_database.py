@@ -197,6 +197,10 @@ class EnhancedDatabaseManager(
 
     def get_all_diaries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """获取所有日记（按日期倒序），带标签信息"""
+        return self.get_all_diaries_with_tags(limit)
+
+    def get_all_diaries_with_tags(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """获取所有日记及其标签（与 get_all_diaries 同源，保留显式名称供调用方使用）"""
         return self.diary_content_service.get_all_diaries_with_tags(limit)
 
     def get_diaries_by_date(self, date_str: str) -> List[Dict[str, Any]]:

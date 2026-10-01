@@ -43,6 +43,8 @@ def main() -> int:
     app.setApplicationVersion("1.0")
     app.setOrganizationName("Assistant")
     window = MainWindow(db_path=db_path)
+    # 退出前停掉同步定时器，避免事件循环结束后还有后台任务被唤醒
+    app.aboutToQuit.connect(window.sync_controller.stop)
     window.show()
     return app.exec()
 

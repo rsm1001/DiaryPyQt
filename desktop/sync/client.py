@@ -15,10 +15,13 @@ logger = logging.getLogger(__name__)
 class RemoteApiError(RuntimeError):
     """服务端请求失败；向界面隐藏内部错误细节。"""
 
-    def __init__(self, message: str, status_code: int = 0, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, status_code: int = 0,
+                 details: Optional[Dict[str, Any]] = None, error_code: str = ""):
         super().__init__(message)
         self.status_code = status_code
+        # 只保留服务端 ErrorResponse.details 里的业务字段（例如冲突时的 server_data）
         self.details = details or {}
+        self.error_code = error_code
 
 
 class DiaryServerClient:
@@ -54,15 +57,30 @@ class DiaryServerClient:
             return result
         except error.HTTPError as exc:
             raw = exc.read().decode("utf-8", errors="replace")
-            try:
-                details = json.loads(raw)
-            except ValueError:
-                details = {}
-            logger.warning("日记服务返回错误", extra={"request_id": request_id, "status": exc.code, "path": path})
-            raise RemoteApiError(f"日记服务请求失败：HTTP {exc.code}", exc.code, details) from exc
+            error_code, details = self._parse_error(raw)
+            logger.warning("日记服务返回错误", extra={"request_id": request_id, "status": exc.code,
+                                                   "path": path, "error_code": error_code})
+            raise RemoteApiError(f"日记服务请求失败：HTTP {exc.code}", exc.code, details,
+                                 error_code) from exc
         except (error.URLError, TimeoutError) as exc:
             logger.warning("日记服务网络不可用", extra={"request_id": request_id, "path": path})
             raise RemoteApiError("无法连接日记服务") from exc
+
+    @staticmethod
+    def _parse_error(raw: str) -> tuple:
+        """拆出服务端错误体。
+
+        服务端返回的是 {code, message, request_id, details}，版本冲突要用的
+        server_data 在嵌套的 details 里，直接整包当 details 会取不到。
+        """
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            return "", {}
+        if not isinstance(body, dict):
+            return "", {}
+        nested = body.get("details")
+        return str(body.get("code", "")), dict(nested) if isinstance(nested, dict) else {}
 
     def require_idempotent_views(self) -> None:
         """旧服务端不可接受初始基线与幂等事件。"""

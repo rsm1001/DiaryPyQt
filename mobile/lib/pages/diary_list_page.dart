@@ -9,6 +9,7 @@ import '../config/app_config.dart';
 import '../models/audio_asset.dart';
 import '../models/diary.dart';
 import 'advanced_search_dialog.dart';
+import 'batch_tag_dialog.dart';
 import 'diary_editor_page.dart';
 import 'diary_transfer_page.dart';
 import 'diary_statistics_page.dart';
@@ -317,16 +318,17 @@ class _DiaryListPageState extends State<DiaryListPage>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('??????'),
-        content: Text('???? ${_selectedDiaryIds.length} ??????????????'),
+        title: const Text('\u6279\u91cf\u5220\u9664\u65e5\u8bb0'),
+        content: Text(
+            '\u5c06\u9009\u4e2d\u7684 ${_selectedDiaryIds.length} \u7bc7\u65e5\u8bb0\u79fb\u5165\u56de\u6536\u7ad9\uff0c\u662f\u5426\u7ee7\u7eed\uff1f'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('??'),
+            child: const Text('\u53d6\u6d88'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('??'),
+            child: const Text('\u5220\u9664'),
           ),
         ],
       ),
@@ -357,7 +359,47 @@ class _DiaryListPageState extends State<DiaryListPage>
         stackTrace: stack,
       );
       if (mounted) {
-        setState(() => _errorMessage = '???????????????????????');
+        setState(() => _errorMessage =
+            '\u6279\u91cf\u5220\u9664\u672a\u5b8c\u6210\uff0c\u5df2\u4fdd\u7559\u672a\u5904\u7406\u65e5\u8bb0');
+      }
+    } finally {
+      if (mounted) setState(() => _batchBusy = false);
+    }
+  }
+
+  Future<void> _batchTagSelected() async {
+    if (_batchBusy || _selectedDiaryIds.isEmpty) return;
+    final all = await _store.getDiaries();
+    if (!mounted) return;
+    final availableTags = all.expand((diary) => diary.tags).toSet().toList()
+      ..sort();
+    final selection = await showBatchTagDialog(context,
+        diaryCount: _selectedDiaryIds.length, availableTags: availableTags);
+    if (selection == null || !mounted) return;
+    final selectedIds = Set<String>.from(_selectedDiaryIds);
+    setState(() => _batchBusy = true);
+    try {
+      final changed = await _sync.batchTagDiaries(
+          selectedIds, selection.tags, selection.mode);
+      if (!mounted) return;
+      setState(() {
+        _selectionMode = false;
+        _selectedDiaryIds.clear();
+        _errorMessage =
+            '\u5df2\u66f4\u65b0 $changed \u7bc7\u65e5\u8bb0\u7684\u6807\u7b7e';
+      });
+      await _refreshLocalList();
+      await _updatePendingCount();
+      if (mounted) unawaited(_syncTrigger.request());
+    } catch (error, stack) {
+      developer.log(
+          'batch_tag_failed request_id=${DateTime.now().microsecondsSinceEpoch}',
+          name: 'diary.mutation',
+          error: error,
+          stackTrace: stack);
+      if (mounted) {
+        setState(() => _errorMessage =
+            '\u6807\u7b7e\u66f4\u65b0\u672a\u63d0\u4ea4\uff0c\u5df2\u4fdd\u7559\u9009\u62e9\u4f9b\u91cd\u8bd5');
       }
     } finally {
       if (mounted) setState(() => _batchBusy = false);
@@ -599,7 +641,7 @@ class _DiaryListPageState extends State<DiaryListPage>
               : '\u65e5\u8bb0'),
           leading: _selectionMode
               ? IconButton(
-                  tooltip: '????',
+                  tooltip: '\u53d6\u6d88\u9009\u62e9',
                   onPressed: _cancelSelection,
                   icon: const Icon(Icons.close),
                 )
@@ -607,7 +649,14 @@ class _DiaryListPageState extends State<DiaryListPage>
           actions: _selectionMode
               ? [
                   IconButton(
-                    tooltip: '????',
+                    tooltip: '\u6279\u91cf\u6807\u7b7e',
+                    onPressed: _batchBusy || _selectedDiaryIds.isEmpty
+                        ? null
+                        : _batchTagSelected,
+                    icon: const Icon(Icons.label_outline),
+                  ),
+                  IconButton(
+                    tooltip: '\u6279\u91cf\u5220\u9664',
                     onPressed: _batchBusy || _selectedDiaryIds.isEmpty
                         ? null
                         : _batchDeleteSelected,

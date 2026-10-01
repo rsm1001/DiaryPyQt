@@ -65,7 +65,7 @@ def get_audio_service(request: Request) -> AudioService:
 
 
 def get_sync_service(request: Request) -> SyncService:
-    """????????????"""
+    """从应用状态获取同步服务。"""
     return request.app.state.sync_service
 
 
@@ -105,7 +105,7 @@ def list_trash(
     offset: int = Query(default=0, ge=0),
     service: DiaryService = Depends(get_service),
 ) -> DiaryListResponse:
-    """?????????"""
+    """查询回收站日记列表。"""
     logger.info("trash_list_requested", extra={"limit": limit, "offset": offset})
     return DiaryListResponse(items=service.list_deleted(limit, offset))
 
@@ -116,7 +116,7 @@ def restore_trash(
     version: Optional[int] = Query(default=None, ge=1),
     service: DiaryService = Depends(get_service),
 ) -> DiaryResponse:
-    """????????"""
+    """从回收站恢复日记。"""
     logger.info("trash_restore_requested", extra={"diary_id": diary_id})
     return DiaryResponse(**service.restore_diary(diary_id, version))
 
@@ -126,7 +126,7 @@ def permanently_delete_trash(
     diary_id: str,
     service: DiaryService = Depends(get_service),
 ) -> Response:
-    """????????????????"""
+    """永久删除回收站中的日记。"""
     logger.info("trash_permanent_delete_requested", extra={"diary_id": diary_id})
     service.permanently_delete_diary(diary_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -198,7 +198,7 @@ def record_diary_view(
 
 @router.get("/statistics", response_model=StatisticsResponse)
 def get_statistics(service: DiaryService = Depends(get_service)) -> StatisticsResponse:
-    """????????????"""
+    """查询查看次数统计。"""
     logger.info("diary_statistics_requested")
     return StatisticsResponse(**service.view_statistics())
 
@@ -209,7 +209,7 @@ def pull_sync(
     limit: int = Query(default=100, ge=1, le=500),
     sync_service: SyncService = Depends(get_sync_service),
 ) -> SyncPullResponse:
-    """??????????"""
+    """拉取游标之后的增量同步变更。"""
     logger.info("sync_pull_requested", extra={"cursor": cursor, "limit": limit})
     return SyncPullResponse(**sync_service.pull(cursor, limit))
 
@@ -219,7 +219,7 @@ def push_sync(
     payload: SyncPushRequest,
     sync_service: SyncService = Depends(get_sync_service),
 ) -> SyncPushResponse:
-    """??????????"""
+    """接收客户端推送的同步操作。"""
     logger.info("sync_push_requested", extra={"count": len(payload.operations)})
     result = sync_service.push([item.model_dump() for item in payload.operations])
     return SyncPushResponse(**result)
@@ -230,7 +230,7 @@ def save_playback(
     payload: PlaybackRecordRequest,
     sync_service: SyncService = Depends(get_sync_service),
 ) -> PlaybackRecordResponse:
-    """??????????????"""
+    """保存播放进度记录。"""
     logger.info("playback_record_requested", extra={"diary_id": payload.diary_id})
     return PlaybackRecordResponse(**sync_service.save_playback(payload.model_dump()))
 
@@ -244,7 +244,7 @@ def list_tags(service: DiaryService = Depends(get_service)) -> TagListResponse:
 
 @router.post("/tags", response_model=TagResponse, status_code=status.HTTP_201_CREATED)
 def create_tag(payload: TagCreate, service: DiaryService = Depends(get_service)) -> TagResponse:
-    """????????"""
+    """创建标签。"""
     logger.info("tag_create_requested")
     return TagResponse(**service.create_tag(payload.name))
 
@@ -255,14 +255,14 @@ def update_tag(
     payload: TagUpdate,
     service: DiaryService = Depends(get_service),
 ) -> TagResponse:
-    """???????? ID?"""
+    """修改标签名称。"""
     logger.info("tag_update_requested", extra={"tag_id": tag_id})
     return TagResponse(**service.update_tag(tag_id, payload.name))
 
 
 @router.delete("/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_tag(tag_id: str, service: DiaryService = Depends(get_service)) -> Response:
-    """????????????"""
+    """删除未被使用的标签。"""
     logger.info("tag_delete_requested", extra={"tag_id": tag_id})
     service.delete_tag(tag_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -304,7 +304,7 @@ def download_audio(
     request: Request,
     audio_service: AudioService = Depends(get_audio_service),
 ) -> Response:
-    """????? Range ???????????????????"""
+    """下载音频文件，支持 Range 分段以便播放器续传和拖动。"""
     asset = audio_service.get_asset(asset_id)
     path = Path(asset["file_path"])
     file_size = path.stat().st_size

@@ -1,16 +1,15 @@
-"""桌面端日记同步状态管理与首次 ID 映射。"""
+"""桌面端日记同步状态管理、首次 ID 映射与查看记录同步。"""
 import json
 from copy import deepcopy
 import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, List
-from uuid import NAMESPACE_URL, uuid4, uuid5
+from uuid import uuid4
 
-from .client import DiaryServerClient, RemoteApiError
-from .downstream import DownstreamConflict, plan_page
+from .client import DiaryServerClient
 from .local_repository import LocalDiaryConflict, LocalDiaryRepository
-from .reconcile import MappingPlan, canonical_payload, payload_digest, plan_mapping
+from .reconcile import MappingPlan, plan_mapping
 from .view_repository import LocalViewRepository, ViewSyncConflict
 
 logger = logging.getLogger(__name__)
@@ -78,79 +77,18 @@ class DesktopSyncService:
         logger.info("桌面日记 ID 映射已建立", extra={"request_id": request_id, "mapped": len(plan.matches)})
         return plan
 
-    def build_push_operations(self, diaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        operations = []
-        entries = self.state.setdefault("entries", {})
-        for diary in diaries:
-            local_id = str(diary["id"])
-            remote_id = entries.setdefault(local_id, {}).setdefault(
-                "remote_id", str(uuid5(NAMESPACE_URL, f"diarypyqt:{local_id}"))
-            )
-            digest = payload_digest(diary)
-            saved = entries[local_id]
-            if saved.get("payload_hash") == digest:
-                continue
-            operations.append({
-                "entity_type": "diary", "entity_id": remote_id, "action": "upsert",
-                "base_version": saved.get("version"),
-                "data": canonical_payload(diary),
-            })
-        return operations
+    def recover_receipt(self, repository: LocalDiaryRepository,
+                        request_id: str = None) -> None:
+        """对外入口：从 SQLite 收据补写丢失的游标（供自动同步引擎复用）。"""
+        self._recover_receipt(repository, request_id or str(uuid4()))
 
-    def sync_once(self, diaries: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """保留旧手动上传流程；服务端有未落地变更时必须先停止。"""
-        request_id = str(uuid4())
-        if self.state.get("mapped"):
-            raise SyncConflict("已映射日记尚未开放安全上传，请先处理下行与冲突")
-        if not self.state.get("mapped") and self._remote_snapshot():
-            raise SyncConflict("服务器已有日记但 ID 映射未经验证，禁止上传")
-        pending = self.client.pull(int(self.state.get("cursor", 0)))
-        if pending.get("items"):
-            raise SyncConflict("服务器有未写入本地的变更，已停止上传；同步状态未推进")
-        operations = self.build_push_operations(diaries)
-        accepted = []
-        entries = {entry.get("remote_id"): entry for entry in self.state["entries"].values()}
-        payloads = {op["entity_id"]: payload_digest(op["data"]) for op in operations}
-        for offset in range(0, len(operations), 100):
-            try:
-                batch = self.client.push(operations[offset:offset + 100])
-            except RemoteApiError as exc:
-                if exc.status_code == 409:
-                    raise SyncConflict("日记版本冲突，停止上传并人工处理") from exc
-                raise
-            expected_ids = {op["entity_id"] for op in operations[offset:offset + 100]}
-            if ({item.get("entity_id") for item in batch.get("items", [])} != expected_ids
-                    or len(batch.get("items", [])) != len(expected_ids)):
-                raise SyncConflict("服务器未确认全部上传操作，停止同步")
-            for item in batch.get("items", []):
-                if item.get("status") != "accepted":
-                    raise SyncConflict("日记版本冲突，停止上传并人工处理")
-                entry = entries.get(item.get("entity_id"))
-                if entry is not None:
-                    data = item.get("data") or {}
-                    entry["content_hash"] = data.get("content_hash", entry.get("content_hash"))
-                    entry["version"] = data.get("version", entry.get("version", 1))
-                    entry["payload_hash"] = payloads[item["entity_id"]]
-                    entry["date"] = next(op["data"]["date"] for op in operations
-                                         if op["entity_id"] == item["entity_id"])
-            accepted.extend(batch.get("items", []))
-            self._save_state()
-        pulled = self.client.pull(int(self.state.get("cursor", 0)))
-        accepted_data = {item["entity_id"]: item.get("data") or {} for item in accepted}
-        for item in pulled.get("items", []):
-            change = item.get("change") or {}
-            remote_id = change.get("entity_id")
-            data = item.get("data") or {}
-            acknowledged = accepted_data.get(remote_id)
-            if (acknowledged is None or change.get("action") != "upsert"
-                    or data.get("version") != acknowledged.get("version")
-                    or data.get("content_hash") != acknowledged.get("content_hash")
-                    or payload_digest(data) != payloads[remote_id]):
-                raise SyncConflict("服务器存在其他设备的变更，未推进同步游标")
-        self.state["cursor"] = pulled.get("next_cursor", self.state.get("cursor", 0))
+    def save_state(self) -> None:
+        """对外入口：原子保存同步状态与冲突日志。"""
         self._save_state()
-        logger.info("桌面手动上传完成", extra={"request_id": request_id, "pushed": len(accepted)})
-        return {"pushed": accepted, "pulled": pulled.get("items", [])}
+
+    def load_state(self) -> Dict[str, Any]:
+        """对外入口：重新从磁盘读取状态，用于生成可恢复的收据基线。"""
+        return self._load_state()
 
     def _recover_receipt(self, repository: LocalDiaryRepository, request_id: str) -> None:
         """SQLite 已提交而 JSON 未写成功时，按收据恢复游标。"""
@@ -248,46 +186,3 @@ class DesktopSyncService:
         logger.info("桌面查看历史上传与新事件同步完成", extra={"request_id": request_id, **result})
         return result
 
-    def pull_once(self, repository: LocalDiaryRepository) -> Dict[str, int]:
-        """逐页落地已映射的正文/标签更新，优先恢复未完成的游标写入。"""
-        request_id = str(uuid4())
-        if not self.state_path.exists() or self.state.get("mapped") is not True:
-            raise SyncConflict("下行前必须完成并保存首次 ID 映射")
-        self._recover_receipt(repository, request_id)
-        applied = 0
-        pages = 0
-        while True:
-            cursor = int(self.state.get("cursor", 0))
-            page = self.client.pull(cursor)
-            items = page.get("items", [])
-            next_cursor = page.get("next_cursor", cursor)
-            try:
-                checks, updates = plan_page(items, self.state["entries"], cursor, next_cursor)
-            except DownstreamConflict as exc:
-                logger.warning("桌面日记下行需人工审核", extra={"request_id": request_id, "cursor": cursor})
-                raise SyncConflict("服务器变更需人工审核；未覆盖本地数据") from exc
-            if not items:
-                break
-            before = deepcopy(self.state)
-            after = deepcopy(before)
-            for local_id, entry_updates in updates.items():
-                after["entries"][local_id].update(entry_updates)
-            after["cursor"] = next_cursor
-            if self._load_state() != before:
-                raise SyncConflict("同步状态在分页期间被修改，拒绝写入本地数据")
-            try:
-                changed = repository.apply_updates(checks, before, after)
-            except LocalDiaryConflict as exc:
-                raise SyncConflict("本地日记已变更，下行停止且游标未推进") from exc
-            self.state = after
-            try:
-                self._save_state()
-            except OSError as exc:
-                self.state = before
-                logger.exception("本地更新已提交但同步状态保存失败", extra={"request_id": request_id})
-                raise SyncConflict("游标未保存；下次下行会尝试从 SQLite 恢复") from exc
-            applied += changed
-            pages += 1
-            logger.info("桌面日记下行页完成", extra={"request_id": request_id,
-                                                 "cursor": next_cursor, "updated": changed})
-        return {"applied": applied, "pages": pages, "cursor": int(self.state["cursor"])}

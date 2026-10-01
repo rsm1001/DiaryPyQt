@@ -134,6 +134,14 @@ class MainMenuBar:
 
         tools_menu.addSeparator()
 
+        auto_sync_action = QAction(_('自动同步日记内容'), self.main_window, checkable=True)
+        # 菜单每次重建，勾选状态必须从主窗口属性回填
+        auto_sync_action.setChecked(
+            bool(getattr(self.main_window, 'auto_content_sync_enabled', True))
+        )
+        auto_sync_action.triggered.connect(self.main_window.set_auto_content_sync)
+        tools_menu.addAction(auto_sync_action)
+
         preview_action = QAction(_('检查服务器日记（只读）'), self.main_window)
         preview_action.triggered.connect(self.main_window.preview_server_sync)
         tools_menu.addAction(preview_action)

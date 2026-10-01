@@ -8,15 +8,12 @@
 import logging
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                             QSplitter, QTableView, QStatusBar, QTabWidget, QMessageBox)
+                             QSplitter, QTableView, QStatusBar, QTabWidget)
 
 from i18n import _
 from controllers.enhanced_diary_controller import EnhancedDiaryController
-from desktop.config.settings import VIEW_SYNC_INTERVAL_MS, get_sync_settings
-from desktop.sync.qt_worker import SyncPreviewWorker, SyncReviewWorker
-from desktop.sync.view_repository import LocalViewRepository
 from models.table_models.diary_table_model import DiaryTableModel
 from views.actions import ActionFactory
 from views.components.calendar.calendar_panel import CalendarPanelFactory
@@ -29,7 +26,7 @@ from views.components.window_chrome.status_bar_manager import StatusBarManager
 from views.components.tables.table_view_manager import TableViewManager
 from views.components.window_chrome.toolbar import MainToolBar
 from views.delegates.tag_delegate import TagDelegate
-from views.sync_review import SyncReviewDialog
+from views.sync_controller import SyncController
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +42,6 @@ class MainWindow(QMainWindow):
         self.current_theme = "light"
         self.current_date_filter = None
         self.show_heatmap = True
-        self._sync_preview_worker = None
-        self._sync_review_worker = None
-        self._sync_review_dialog = None
-        self._sync_review_follow_up = None
-        self._auto_view_worker = None
-        self._auto_view_timer = QTimer(self)
-        self._auto_view_timer.setInterval(VIEW_SYNC_INTERVAL_MS)
-        self._auto_view_timer.timeout.connect(self._auto_sync_views)
 
         # 启动时清理旧查看日志
         self.controller.cleanup_old_view_logs()
@@ -76,9 +65,13 @@ class MainWindow(QMainWindow):
         self._init_ui()
         self._setup_connections()
 
+        # 同步协调器：正文自动同步、查看记录同步与服务器状态页
+        self.sync_controller = SyncController(self)
+
         # 加载数据与应用主题
         self.load_data()
         self.apply_theme()
+        self.sync_controller.start()
         logger.info("主窗口初始化完成")
 
     # ------------------------------------------------------------------
@@ -183,173 +176,37 @@ class MainWindow(QMainWindow):
         self.toolbar_manager.set_batch_actions_enabled(count > 0)
         logger.debug("选中行数变化: %d", count)
 
+    # ------------------------------------------------------------------
+    # 同步（具体协调在 SyncController 中）
+    # ------------------------------------------------------------------
     def review_server_sync(self) -> None:
-        """?????????????????"""
-        if self._sync_review_dialog is not None:
-            self._sync_review_dialog.raise_()
-            self._sync_review_dialog.activateWindow()
-            return
-        try:
-            get_sync_settings()
-        except ValueError:
-            QMessageBox.information(self, "????", "???? DIARY_API_BASE_URL?")
-            return
-        dialog = SyncReviewDialog(self)
-        self._sync_review_dialog = dialog
-        dialog.refresh_requested.connect(self._start_sync_review)
-        dialog.map_requested.connect(lambda: self._start_sync_review("map"))
-        dialog.pull_requested.connect(lambda: self._start_sync_review("pull"))
-        dialog.views_requested.connect(lambda: self._start_sync_review("views"))
-        dialog.finished.connect(self._on_sync_review_dialog_finished)
-        dialog.show()
-        self._start_sync_review("preview")
-
-    def _start_sync_review(self, operation: str = "preview") -> None:
-        if (self._sync_review_worker is not None or self._auto_view_worker is not None
-                or self._sync_review_dialog is None):
-            return
-        try:
-            settings = get_sync_settings()
-        except ValueError as exc:
-            self._sync_review_dialog.show_error(str(exc))
-            return
-        diaries = [diary.to_dict() for diary in self.controller.get_all_diaries_with_tags()]
-        worker = SyncReviewWorker(
-            operation, diaries, str(self.db_path), settings.state_path, self
-        )
-        self._sync_review_worker = worker
-        self._sync_review_dialog.set_busy(True)
-        worker.completed.connect(self._on_sync_review_completed)
-        worker.failed.connect(self._on_sync_review_failed)
-        worker.finished.connect(self._on_sync_review_finished)
-        worker.start()
-
-    def _on_sync_review_completed(self, result: dict) -> None:
-        operation = result.get("operation")
-        if operation == "pull":
-            self.load_data()
-            self.statusBar().showMessage(
-                f"??? {result.get('applied', 0)} ?????? {result.get('cursor', 0)}", 5000
-            )
-        elif operation == "map":
-            self.statusBar().showMessage(f"已映射 {result.get('mapped', 0)} 篇日记", 5000)
-        elif operation == "views":
-            self._enable_auto_views()
-            self.load_data()
-            self.statusBar().showMessage(
-                f"已核对电脑历史查看 {result.get('baseline_count', 0)} 次，服务器新增下行 "
-                f"{result.get('added', 0)} 次", 8000
-            )
-        if operation != "preview":
-            self._sync_review_follow_up = "preview"
-            return
-        if self._sync_review_dialog is not None:
-            self._sync_review_dialog.set_result(result)
-            self.statusBar().showMessage("????????", 5000)
-
-    def _on_sync_review_failed(self, message: str) -> None:
-        if self._sync_review_dialog is not None:
-            self._sync_review_dialog.show_error(message)
-        self.statusBar().showMessage("???????", 5000)
-
-    def _on_sync_review_finished(self) -> None:
-        self._sync_review_worker.deleteLater()
-        self._sync_review_worker = None
-        follow_up = self._sync_review_follow_up
-        self._sync_review_follow_up = None
-        if follow_up is not None:
-            self._start_sync_review(follow_up)
-
-    def _enable_auto_views(self) -> None:
-        try:
-            settings = get_sync_settings()
-            if not settings.state_path.is_file():
-                return
-            if not LocalViewRepository(self.db_path).has_checkpoint():
-                return
-        except (ValueError, OSError):
-            return
-        self._auto_view_timer.start()
-        QTimer.singleShot(0, self._auto_sync_views)
-
-    def _auto_sync_views(self) -> None:
-        if self._auto_view_worker is not None or self._sync_review_worker is not None:
-            return
-        try:
-            settings = get_sync_settings()
-        except ValueError:
-            self._auto_view_timer.stop()
-            return
-        worker = SyncReviewWorker("views", [], str(self.db_path), settings.state_path, self)
-        self._auto_view_worker = worker
-        worker.completed.connect(self._on_auto_view_completed)
-        worker.failed.connect(self._on_auto_view_failed)
-        worker.finished.connect(self._on_auto_view_finished)
-        worker.start()
-
-    def _on_auto_view_completed(self, result: dict) -> None:
-        if result.get("changed"):
-            self.load_data()
-
-    def _on_auto_view_failed(self, message: str) -> None:
-        self._auto_view_timer.stop()
-        self.statusBar().showMessage(message, 10000)
-
-    def _on_auto_view_finished(self) -> None:
-        self._auto_view_worker.deleteLater()
-        self._auto_view_worker = None
-
-    def _on_sync_review_dialog_finished(self) -> None:
-        if self._sync_review_worker is not None and self._sync_review_worker.isRunning():
-            self._sync_review_worker.requestInterruption()
-        self._sync_review_dialog = None
+        """打开服务器同步状态页。"""
+        self.sync_controller.open_dialog()
 
     def preview_server_sync(self) -> None:
-        """只读检查同步数据；服务器有历史日记时禁止自动上传。"""
-        if self._sync_preview_worker is not None:
-            return
-        try:
-            get_sync_settings()
-        except ValueError:
-            QMessageBox.information(self, "服务器检查", "请配置 DIARY_API_BASE_URL，并检查 DIARY_API_TIMEOUT。")
-            return
-        diaries = [diary.to_dict() for diary in self.controller.get_all_diaries_with_tags()]
-        worker = SyncPreviewWorker(diaries, self)
-        self._sync_preview_worker = worker
-        worker.completed.connect(self._on_sync_preview_completed)
-        worker.failed.connect(self._on_sync_preview_failed)
-        worker.finished.connect(self._on_sync_preview_finished)
-        self.statusBar().showMessage("正在检查服务器日记，请稍候……")
-        worker.start()
+        """只读核对服务器日记，不写入本地。"""
+        self.sync_controller.check_server()
 
-    def _on_sync_preview_completed(self, result: dict) -> None:
-        self.statusBar().showMessage("服务器日记检查已完成（只读）", 5000)
-        QMessageBox.information(
-            self, "服务器日记检查（只读）",
-            f"本地日记：{result['local']} 篇\n"
-            f"服务器同步记录中仍存在：{result['remote']} 篇\n"
-            f"日期和内容相同：{result['same_content']} 篇\n"
-            f"日期、正文和标签唯一匹配：{result['matched']} 篇\n"
-            f"未匹配本地：{result['local_only']}，服务器：{result['remote_only']}；歧义：{result['ambiguous']}\n"
-            "此检查不会上传、下载或修改任何日记；内容相同不代表已建立同步映射。",
-        )
+    def set_auto_content_sync(self, checked: bool) -> None:
+        """菜单开关：切换正文自动同步。"""
+        self.sync_controller.set_enabled(checked)
 
-    def _on_sync_preview_failed(self, message: str) -> None:
-        self.statusBar().showMessage("服务器日记检查失败", 5000)
-        QMessageBox.warning(self, "服务器检查", message)
+    def request_content_sync(self) -> None:
+        """本地改动后请求一轮同步（带去抖）。"""
+        self.sync_controller.request_sync()
 
-    def _on_sync_preview_finished(self) -> None:
-        self._sync_preview_worker.deleteLater()
-        self._sync_preview_worker = None
+    @property
+    def auto_content_sync_enabled(self) -> bool:
+        """供菜单在重建时回填勾选状态。"""
+        return self.sync_controller.auto_content_sync_enabled
 
     def closeEvent(self, event) -> None:
-        """????????????????"""
-        if ((self._sync_preview_worker is not None and self._sync_preview_worker.isRunning())
-                or (self._sync_review_worker is not None and self._sync_review_worker.isRunning())
-                or (self._auto_view_worker is not None and self._auto_view_worker.isRunning())):
+        """关闭前确认没有后台同步任务在运行。"""
+        if self.sync_controller.is_busy():
             event.ignore()
-            self.statusBar().showMessage("?????????????????", 5000)
+            self.statusBar().showMessage("同步任务仍在进行，请稍候再关闭", 5000)
             return
+        self.sync_controller.stop()
         super().closeEvent(event)
 
     def load_data(self) -> None:

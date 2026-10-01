@@ -2,7 +2,7 @@
 状态栏管理器组件
 """
 import logging
-from PyQt6.QtWidgets import QStatusBar
+from PyQt6.QtWidgets import QLabel, QStatusBar
 
 from i18n import _
 
@@ -15,7 +15,16 @@ class StatusBarManager:
     def __init__(self, status_bar: QStatusBar):
         """初始化状态栏管理器"""
         self.status_bar = status_bar
+        # 常驻显示同步状态：统计信息用的是不带超时的 showMessage，
+        # 会覆盖同一区域，因此必须用独立常驻控件
+        self.sync_label = QLabel("")
+        self.status_bar.addPermanentWidget(self.sync_label)
         logger.debug("StatusBarManager 初始化完成")
+
+    def update_sync_status(self, message: str) -> None:
+        """更新同步状态常驻标签"""
+        self.sync_label.setText(message)
+        logger.debug(f"同步状态更新: {message}")
 
     def update_statistics(self, stats: dict, daily_stats: dict, today_views: int,
                           date_filter: str = None):

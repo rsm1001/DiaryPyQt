@@ -35,7 +35,7 @@ class TestConnectionMixin:
         assert isinstance(conn, sqlite3.Connection)
 
     def test_acquire_read_connection(self, temp_db_manager):
-        """??????????????????????"""
+        """读取连接用后必须归还池，池大小保持稳定。"""
         initial_size = temp_db_manager._read_pool.qsize()
         with temp_db_manager._acquire_read_connection() as (conn, lock):
             assert isinstance(conn, sqlite3.Connection)
@@ -44,7 +44,7 @@ class TestConnectionMixin:
         assert temp_db_manager._read_pool.qsize() == initial_size
 
     def test_read_connection_is_replaced_after_sqlite_error(self, temp_db_manager):
-        """????? SQLite ???????????????"""
+        """读取连接报 SQLite 错误后必须销毁重建，不能把坏连接放回池。"""
         before = {id(conn) for conn, _ in list(temp_db_manager._read_pool.queue)}
         with pytest.raises(sqlite3.Error):
             with temp_db_manager._acquire_read_connection() as (conn, _):
@@ -54,23 +54,23 @@ class TestConnectionMixin:
         assert before != after
 
     def test_transaction_rolls_back_on_error(self, temp_db_manager):
-        """??????????????????"""
+        """事务中途报错必须整笔回滚，前面已插入的行不能残留。"""
         with pytest.raises(sqlite3.IntegrityError):
             with temp_db_manager._transaction() as cursor:
                 cursor.execute(
                     "INSERT INTO diaries (date, content) VALUES (?, ?)",
-                    ("2026-05-21 10:00:00", "????"),
+                    ("2026-05-21 10:00:00", "回滚测试正文"),
                 )
                 cursor.execute(
                     "INSERT INTO diaries (date, content) VALUES (?, ?)",
                     (None, None),
                 )
         assert temp_db_manager._execute(
-            "SELECT * FROM diaries WHERE content = ?", ("????",), fetch="one"
+            "SELECT * FROM diaries WHERE content = ?", ("回滚测试正文",), fetch="one"
         ) is None
 
     def test_query_routing_classifies_read_and_write_sql(self):
-        """??????? SELECT/PRAGMA??????????"""
+        """SQL 路由要能区分 SELECT/PRAGMA 与写语句，避免读连接执行写入。"""
         assert ConnectionMixin._is_read_query(" SELECT 1") is True
         assert ConnectionMixin._is_read_query("pragma user_version") is True
         assert ConnectionMixin._is_read_query("WITH rows AS (SELECT 1) SELECT * FROM rows") is False

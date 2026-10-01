@@ -2,9 +2,12 @@
 """
 Simple PO to MO compiler
 """
-import struct
-import sys
+import logging
 import os
+import struct
+
+logger = logging.getLogger(__name__)
+
 
 def unescape(s):
     """Unescape PO file string"""
@@ -122,9 +125,11 @@ def compile_po_to_mo(po_path, mo_path):
             f.write(trans.encode('utf-8'))
             f.write(b'\x00')
 
-    print(f'Compiled {po_path} -> {mo_path}')
+    logger.info("已编译 %s -> %s", po_path, mo_path)
+
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
     compile_po_to_mo(
@@ -137,4 +142,4 @@ if __name__ == '__main__':
         os.path.join(base_dir, 'en_US/LC_MESSAGES/messages.mo')
     )
 
-    print('Done!')
+    logger.info("编译完成")
