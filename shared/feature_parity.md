@@ -8,7 +8,7 @@ The desktop application and the Android app use different user interfaces; the A
 | Search | Desktop text/date search | Cached text and tag search, plus inclusive date and view-count filters | Full-text indexing not yet ported |
 | Import / export | JSON and CSV, local database | JSON export and confirmed JSON import, including desktop JSON-array input | Imported historical view counts and IDs are intentionally not restored; CSV transfer pending |
 | Multiple selection / delete | Available | Available, uses existing offline outbox | Device acceptance pending |
-| Tags | Available | Filter, create, rename, remove and diary editing | Batch tagging pending |
+| Tags | Available | Filter, create, rename, remove, diary editing, and offline-safe batch add/remove/replace | Real-device acceptance pending |
 | View counts / weighted random | Available | Offline recorded views, weighted sampling with replacement | Lock-screen behavior must be tested on device |
 | Statistics | Available | Server aggregates and cached local aggregates | Heatmap history unavailable: do not synthesize old per-day events |
 | Trash | Available | Browse, restore, permanent deletion | Bulk restore pending |

@@ -40,6 +40,7 @@ AI 每次 Edit/Write/MultiEdit 后，必须先读取并处理 PostToolUse hook �
 11. 模块按功能垂直划分，通过接口、DTO、事件或消息通信，避免直接耦合内部实体。
 12. `.env` 放敏感信息；固定参数放配置文件；必须提供 `.env.example`。
 13. 未经允许，不得私自提交 Git。
+14. 每次构建 Android APK 后，必须按构建时的本地日期和时分命名产物，格式为 `DiaryPyQt-{debug|release}-YYYYMMDD-HHmm.apk`；Debug 与 Release 使用同一批次时间戳，不得直接把 `app-debug.apk` 或 `app-release.apk` 作为交付文件。
 
 ## 开发与部署边界（强制）
 

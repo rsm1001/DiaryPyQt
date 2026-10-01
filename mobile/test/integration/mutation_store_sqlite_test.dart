@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,6 +8,7 @@ import 'package:diary_mobile/models/diary_view_result.dart';
 import 'package:diary_mobile/services/diary_api.dart';
 import 'package:diary_mobile/services/local_store.dart';
 import 'package:diary_mobile/services/sync_manager.dart';
+import 'package:diary_mobile/services/sync_trigger.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -29,10 +31,14 @@ class MutationApi extends DiaryApi {
   final seenViews = <String>{};
   bool offline = true;
   bool unreachable = false;
+  bool unauthorized = false;
   int nextId = 0;
   int fetches = 0;
 
   void checkNetwork() {
+    if (unauthorized) {
+      throw const DiaryApiException('Authentication failed', statusCode: 401);
+    }
     if (offline || unreachable) {
       throw const DiaryApiException('网络不可用', network: true);
     }
@@ -206,6 +212,67 @@ void main() {
     online = true;
     expect(await sync.refresh(), isEmpty);
     expect(api.remote, isEmpty);
+  });
+
+  test('Authentication errors keep local edits until valid credentials return',
+      () async {
+    final diary = sample('entry-id');
+    await store.saveDiary(diary);
+    api.remote[diary.id] = diary;
+    await sync.updateDiary(diary, content: 'edited locally', tags: []);
+    online = true;
+    api.offline = false;
+    api.unauthorized = true;
+    await expectLater(
+      sync.refresh(),
+      throwsA(isA<DiaryApiException>()
+          .having((error) => error.statusCode, 'statusCode', 401)),
+    );
+    expect((await store.getDiary(diary.id))!.content, 'edited locally');
+    expect(await sync.pendingCount(), 1);
+    api.unauthorized = false;
+    await sync.refresh();
+    expect(api.remote[diary.id]!.content, 'edited locally');
+    expect(await sync.pendingCount(), 0);
+  });
+
+  test(
+      'Pending edits upload automatically when the API returns on unchanged Wi-Fi',
+      () async {
+    final diary = sample('entry-id');
+    await store.saveDiary(diary);
+    api.remote[diary.id] = diary;
+    await sync.updateDiary(diary, content: 'edited locally', tags: []);
+    online = true;
+    api.offline = false;
+    api.unreachable = true;
+    final changes = StreamController<List<ConnectivityResult>>();
+    final uploaded = Completer<void>();
+    var failures = 0;
+    final trigger = SyncTrigger(
+      changes: changes.stream,
+      retryDelay: const Duration(milliseconds: 20),
+      refresh: () async {
+        await sync.refresh();
+        if (!uploaded.isCompleted) uploaded.complete();
+      },
+      onError: (error, stack) {
+        failures++;
+        api.unreachable = false;
+      },
+    )..start();
+    try {
+      changes.add([ConnectivityResult.wifi]);
+      await trigger.request();
+      expect(failures, 1);
+      expect(await sync.pendingCount(), 1);
+      await uploaded.future.timeout(const Duration(seconds: 2));
+      expect(api.remote[diary.id]!.content, 'edited locally');
+      expect(await sync.pendingCount(), 0);
+    } finally {
+      await trigger.dispose();
+      await changes.close();
+    }
   });
 
   test('两端版本冲突保留离线编辑与基线版本，不覆写服务器', () async {

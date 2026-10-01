@@ -22,10 +22,11 @@ class AudioDownloadChunk {
 
 class DiaryApiException implements Exception {
   const DiaryApiException(this.message,
-      {this.network = false, this.conflict = false});
+      {this.network = false, this.conflict = false, this.statusCode});
   final String message;
   final bool network;
   final bool conflict;
+  final int? statusCode;
   @override
   String toString() => message;
 }
@@ -373,14 +374,17 @@ class DiaryApi {
   static void _ensureSuccess(http.Response response) {
     if (response.statusCode == 401) {
       throw const DiaryApiException(
-          'Authentication failed: update the connection password in server settings');
+          'Authentication failed: update the connection password in server settings',
+          statusCode: 401);
     }
     if (response.statusCode == 409) {
-      throw const DiaryApiException('日记版本冲突，请刷新后再操作', conflict: true);
+      throw const DiaryApiException('日记版本冲突，请刷新后再操作',
+          conflict: true, statusCode: 409);
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw DiaryApiException(
-          'Server request failed: HTTP ${response.statusCode}');
+          'Server request failed: HTTP ${response.statusCode}',
+          statusCode: response.statusCode);
     }
   }
 }

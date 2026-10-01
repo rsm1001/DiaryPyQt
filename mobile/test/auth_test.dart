@@ -47,7 +47,11 @@ void main() {
       baseUrl: 'https://203.195.195.218',
       client: MockClient((request) async => http.Response('', 401)),
     );
-    await expectLater(api.checkConnection(), throwsA(isA<DiaryApiException>()));
+    await expectLater(
+      api.checkConnection(),
+      throwsA(isA<DiaryApiException>()
+          .having((error) => error.statusCode, 'statusCode', 401)),
+    );
     api.dispose();
   });
 }

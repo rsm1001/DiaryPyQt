@@ -45,6 +45,10 @@ class _DiaryListPageState extends State<DiaryListPage>
     changes: Connectivity().onConnectivityChanged,
     refresh: _performRefresh,
     onError: _onSyncError,
+    shouldRetry: (error) =>
+        error is! DiaryApiException ||
+        (!error.conflict &&
+            (error.statusCode == null || error.statusCode! >= 500)),
     onOfflineChanged: (offline) {
       if (mounted) setState(() => _offline = offline);
     },
@@ -53,6 +57,7 @@ class _DiaryListPageState extends State<DiaryListPage>
   bool _offline = false;
   bool _syncing = false;
   int _pendingCount = 0;
+  bool _requiresServerCredentials = false;
   final _playback = DoublePlaybackService();
   late Future<List<Diary>> _diaries;
   StreamSubscription<PlaybackSnapshot>? _subscription;
@@ -152,6 +157,7 @@ class _DiaryListPageState extends State<DiaryListPage>
         _api = candidate;
         _sync = SyncManager(api: _api, store: _store);
         _errorMessage = null;
+        _requiresServerCredentials = false;
       });
       await _syncTrigger.request();
       previous.dispose();
@@ -167,17 +173,29 @@ class _DiaryListPageState extends State<DiaryListPage>
         stackTrace: stack,
       );
       if (mounted) {
-        setState(() => _errorMessage = '连接校验失败，请检查服务器地址与密码。');
+        setState(() {
+          _requiresServerCredentials =
+              error is DiaryApiException && error.statusCode == 401;
+          _errorMessage = _requiresServerCredentials
+              ? describeSyncFailure(
+                  conflict: false, pending: _pendingCount, statusCode: 401)
+              : '连接校验失败，请检查服务器地址与密码。';
+        });
       }
       if (!identical(candidate, _api)) candidate.dispose();
     }
   }
 
-  Future<List<Diary>> _loadDiaries() async {
+  Future<List<Diary>> _loadDiaries({bool rethrowOnFailure = false}) async {
     final local = await _sync.loadLocal();
     try {
       final remote = await _sync.refresh();
-      if (mounted) setState(() => _errorMessage = null);
+      if (mounted) {
+        setState(() {
+          _errorMessage = null;
+          _requiresServerCredentials = false;
+        });
+      }
       return remote;
     } catch (error, stack) {
       developer.log(
@@ -190,11 +208,20 @@ class _DiaryListPageState extends State<DiaryListPage>
       if (mounted) {
         setState(() {
           _pendingCount = pending;
+          final statusCode =
+              error is DiaryApiException ? error.statusCode : null;
+          _requiresServerCredentials = statusCode == 401 || statusCode == 403;
           _errorMessage = describeSyncFailure(
               conflict: error is DiaryApiException && error.conflict,
-              pending: pending);
+              pending: pending,
+              statusCode: statusCode);
         });
       }
+      if (rethrowOnFailure) {
+        if (mounted) setState(() => _diaries = Future.value(local));
+        Error.throwWithStackTrace(error, stack);
+      }
+      _syncTrigger.scheduleRetry(error);
       return local;
     }
   }
@@ -277,7 +304,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       error: error,
       stackTrace: stack,
     );
-    if (mounted) {
+    if (mounted && _errorMessage == null) {
       setState(() => _errorMessage = '本地同步状态无法更新，请稍后重试。');
     }
   }
@@ -286,7 +313,7 @@ class _DiaryListPageState extends State<DiaryListPage>
     if (!mounted) return;
     setState(() => _syncing = true);
     try {
-      final diaries = await _loadDiaries();
+      final diaries = await _loadDiaries(rethrowOnFailure: true);
       if (mounted) setState(() => _diaries = Future.value(diaries));
     } finally {
       await _updatePendingCount();
@@ -726,7 +753,10 @@ class _DiaryListPageState extends State<DiaryListPage>
           if (_errorMessage != null)
             MaterialBanner(content: Text(_errorMessage!), actions: [
               TextButton(
-                  onPressed: _syncTrigger.request, child: const Text('重试'))
+                  onPressed: _requiresServerCredentials
+                      ? _configureServer
+                      : _syncTrigger.request,
+                  child: Text(_requiresServerCredentials ? '服务器设置' : '重试'))
             ]),
           if (_syncing || _offline || _pendingCount > 0)
             SyncStatusBanner(

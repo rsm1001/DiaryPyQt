@@ -28,6 +28,10 @@ void main() {
     expect(describeSyncFailure(conflict: true, pending: 2),
         contains('\u7248\u672c\u51b2\u7a81'));
     expect(describeSyncFailure(conflict: false, pending: 3), contains('3 条'));
+    expect(describeSyncFailure(conflict: false, pending: 6, statusCode: 401),
+        allOf(contains('HTTP 401'), contains('服务器设置'), contains('6 条')));
+    expect(describeSyncFailure(conflict: false, pending: 6, statusCode: 500),
+        contains('HTTP 500'));
   });
 
   testWidgets('离线和待同步任务状态保持可见', (tester) async {

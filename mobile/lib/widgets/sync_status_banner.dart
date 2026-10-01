@@ -29,7 +29,19 @@ class SyncStatusBanner extends StatelessWidget {
       );
 }
 
-String describeSyncFailure({required bool conflict, required int pending}) =>
-    conflict
-        ? '存在版本冲突：$pending 条待同步任务已保留，请核对后再重试。'
-        : '同步未完成：正在显示本地日记，$pending 条待同步任务仍安全保留。';
+String describeSyncFailure({
+  required bool conflict,
+  required int pending,
+  int? statusCode,
+}) {
+  if (statusCode == 401 || statusCode == 403) {
+    return '服务器身份验证失败（HTTP $statusCode）。请到右上角“更多→服务器设置”重新输入连接密码；$pending 条待同步任务仍保留。';
+  }
+  if (conflict) {
+    return '存在版本冲突：$pending 条待同步任务已保留，请核对后再重试。';
+  }
+  if (statusCode != null) {
+    return '服务器返回 HTTP $statusCode，同步未完成；$pending 条待同步任务仍保留，请检查服务器或稍后重试。';
+  }
+  return '同步未完成：正在显示本地日记，$pending 条待同步任务仍安全保留。';
+}

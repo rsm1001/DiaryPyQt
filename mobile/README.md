@@ -5,7 +5,7 @@
 ## 真机连接（不需要 Tailscale）
 
 1. 在桌面打开 `DiaryPyQt-连接密码.txt`，取得连接密码。不要将它发送给别人。
-2. 安装桌面上的 `DiaryPyQt-Android.apk`；启动后点右上角齿轮。
+2. 安装桌面上按日期时分命名的正式 APK，例如 `DiaryPyQt-release-20261001-1430.apk`；启动后点右上角齿轮。
 3. 服务器地址填 `https://203.195.195.218`（**不要填 http**，也不要填 8010/8020 端口）。
 4. 连接密码填桌面文件里的密码，点「测试并保存」；App 会验证身份并拉取日记。
 
@@ -20,6 +20,12 @@ flutter analyze
 flutter test
 flutter build apk --debug --dart-define=DIARY_API_BASE_URL=https://203.195.195.218
 flutter build apk --release --dart-define=DIARY_API_BASE_URL=https://203.195.195.218
+
+$buildStamp = Get-Date -Format 'yyyyMMdd-HHmm'
+Copy-Item build/app/outputs/flutter-apk/app-debug.apk `
+  "build/app/outputs/flutter-apk/DiaryPyQt-debug-$buildStamp.apk"
+Copy-Item build/app/outputs/flutter-apk/app-release.apk `
+  "build/app/outputs/flutter-apk/DiaryPyQt-release-$buildStamp.apk"
 ```
 
 语音下载会附带鉴权，且只允许从当前服务器下载；离线音频按内容版本校验。电脑端后续日记修改仍需执行桌面同步后手机才能看到更新。
@@ -53,11 +59,11 @@ flutter build apk --debug --dart-define=DIARY_API_BASE_URL=https://203.195.195.2
 flutter build apk --release --dart-define=DIARY_API_BASE_URL=https://203.195.195.218
 ```
 
-- 测试版：`build/app/outputs/flutter-apk/app-debug.apk`
-- 正式版：`build/app/outputs/flutter-apk/app-release.apk`
+- 交付文件必须命名为 `DiaryPyQt-debug-YYYYMMDD-HHmm.apk` 和 `DiaryPyQt-release-YYYYMMDD-HHmm.apk`，例如 `DiaryPyQt-release-20261001-1430.apk`。
+- Debug 与 Release 必须使用同一批次时间戳；`app-debug.apk` 和 `app-release.apk` 只能作为 Flutter 的中间产物，不得直接发送或安装交付。
+- 构建后应对按日期时分命名的交付 APK 计算并保留 SHA-1 校验值、文件大小和生成时间。
 - 只有 `flutter analyze`、`flutter test`和两种 APK 构建全部成功后，才能将本次修改标记为可验收。
 - 构建只在 Windows 本地完成；未经用户明确同意，不发布到生产服务器。
-- 构建后应保留 APK 的生成时间、文件大小和 SHA-1 校验值，便于真机安装和回滚。
 
 
 ## ???????????2026-09-28?
@@ -84,7 +90,7 @@ flutter build apk --release --dart-define=DIARY_API_BASE_URL=https://203.195.195
 - Import accepts the app backup format or the desktop JSON array format. It previews new/duplicate counts and requires confirmation. A duplicate with the same date and content is skipped; existing diaries are never overwritten.
 - Import creates fresh local IDs and saves new diaries and outbox jobs in one SQLite transaction, so it works offline. Original IDs and historical view counts are deliberately **not** restored, avoiding duplicate server views; do not use this import as a historical view-statistics migration.
 - Android document picker/save dialog must be validated on a real device when available. The JSON size limit is 5 MB and import batch limit is 2,000 entries.
-- After mobile changes, run `flutter analyze`, `flutter test`, and rebuild **both** Debug and Release APKs. APK builds do not publish or install the app automatically.
+- After mobile changes, run `flutter analyze`, `flutter test`, and rebuild **both** Debug and Release APKs. Rename the delivered files with the shared `YYYYMMDD-HHmm` batch timestamp; Flutter default APK names are intermediate files only. APK builds do not publish or install the app automatically.
 
 ## Batch tagging (2026-09-29)
 
