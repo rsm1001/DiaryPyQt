@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:diary_mobile/models/diary.dart';
 import 'package:diary_mobile/services/diary_api.dart';
-import 'package:diary_mobile/services/diary_transfer.dart';
+import 'package:diary_mobile/transfer/diary_transfer.dart';
 import 'package:diary_mobile/services/local_store.dart';
 import 'package:diary_mobile/services/sync_manager.dart';
 import 'package:diary_mobile/tags/batch_tag_policy.dart';

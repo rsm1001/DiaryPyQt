@@ -12,10 +12,12 @@ class DiaryImportEntry {
 }
 
 class DiaryImportPreview {
-  const DiaryImportPreview({required this.entries, required this.skipped});
+  const DiaryImportPreview(
+      {required this.entries, required this.skipped, this.errors = 0});
 
   final List<DiaryImportEntry> entries;
   final int skipped;
+  final int errors;
 }
 
 String exportDiariesJson(List<Diary> diaries) =>
@@ -68,9 +70,8 @@ List<DiaryImportEntry> parseDiaryImport(String source) {
 }
 
 DiaryImportPreview previewDiaryImport(
-  List<DiaryImportEntry> entries,
-  List<Diary> current,
-) {
+    List<DiaryImportEntry> entries, List<Diary> current,
+    {int errors = 0}) {
   final keys = current.map((diary) => _key(diary.date, diary.content)).toSet();
   final unique = <DiaryImportEntry>[];
   var skipped = 0;
@@ -82,7 +83,7 @@ DiaryImportPreview previewDiaryImport(
     }
   }
   return DiaryImportPreview(
-      entries: List.unmodifiable(unique), skipped: skipped);
+      entries: List.unmodifiable(unique), skipped: skipped, errors: errors);
 }
 
 String _key(String date, String content) =>

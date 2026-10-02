@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:diary_mobile/models/diary.dart';
-import 'package:diary_mobile/services/diary_transfer.dart';
+import 'package:diary_mobile/transfer/diary_transfer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Diary sample(String id, String content) => Diary(

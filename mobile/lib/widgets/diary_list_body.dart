@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../models/diary.dart';
+import '../search/diary_highlight.dart';
+import '../search/diary_search_index.dart';
 import '../services/diary_filter.dart';
 import '../services/double_playback_service.dart';
 
-class DiaryListBody extends StatelessWidget {
+class DiaryListBody extends StatefulWidget {
   const DiaryListBody({
     super.key,
     required this.diaries,
@@ -17,6 +19,7 @@ class DiaryListBody extends StatelessWidget {
     required this.onRefresh,
     required this.onOpen,
     required this.onPlay,
+    this.onClearFilters,
     this.searchOptions = const DiarySearchOptions(),
     this.selectionMode = false,
     this.selectedIds = const {},
@@ -30,6 +33,7 @@ class DiaryListBody extends StatelessWidget {
   final PlaybackSnapshot snapshot;
   final ValueChanged<String> onSearch;
   final ValueChanged<String?> onTag;
+  final VoidCallback? onClearFilters;
   final Future<void> Function() onRefresh;
   final Future<void> Function(Diary) onOpen;
   final Future<void> Function(Diary) onPlay;
@@ -38,23 +42,52 @@ class DiaryListBody extends StatelessWidget {
   final Set<String> selectedIds;
   final ValueChanged<String>? onToggleSelection;
 
+  @override
+  State<DiaryListBody> createState() => _DiaryListBodyState();
+}
+
+class _DiaryListBodyState extends State<DiaryListBody> {
+  late final TextEditingController _searchController;
+  List<Diary>? _indexedItems;
+  DiarySearchIndex? _index;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController(text: widget.searchQuery);
+  }
+
+  @override
+  void didUpdateWidget(DiaryListBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.searchQuery != _searchController.text) {
+      _searchController.text = widget.searchQuery;
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   String _stageLabel(Diary diary) {
-    if (playingDiaryId != diary.id) return 'v${diary.version}';
-    switch (snapshot.stage) {
+    if (widget.playingDiaryId != diary.id) return 'v${diary.version}';
+    switch (widget.snapshot.stage) {
       case PlaybackStage.buffering:
-        return 'Buffering';
+        return '缓冲中';
       case PlaybackStage.playingFirst:
-        return 'Playing 1/2';
+        return '播放 1/2';
       case PlaybackStage.waiting:
-        return 'Repeat gap ${snapshot.remainingGap.inSeconds}s';
+        return '等待 ${widget.snapshot.remainingGap.inSeconds} 秒';
       case PlaybackStage.playingSecond:
-        return 'Playing 2/2';
+        return '播放 2/2';
       case PlaybackStage.paused:
-        return 'Paused';
+        return '已暂停';
       case PlaybackStage.completed:
-        return 'Completed';
+        return '已完成';
       case PlaybackStage.idle:
-        return 'Ready';
+        return '就绪';
     }
   }
 
@@ -63,14 +96,17 @@ class DiaryListBody extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: TextField(
-            onChanged: onSearch,
+            controller: _searchController,
+            onChanged: widget.onSearch,
             decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search), hintText: '搜索日期、正文或标签'),
+              prefixIcon: Icon(Icons.search),
+              hintText: '搜索日期、正文或标签（空格分隔多个关键词）',
+            ),
           ),
         ),
         Expanded(
           child: FutureBuilder<List<Diary>>(
-            future: diaries,
+            future: widget.diaries,
             builder: (context, result) {
               if (result.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
@@ -79,17 +115,31 @@ class DiaryListBody extends StatelessWidget {
               if (items.isEmpty) {
                 return const Center(child: Text('暂无已缓存的日记'));
               }
+              if (!identical(_indexedItems, items)) {
+                _indexedItems = items;
+                _index = DiarySearchIndex(items);
+              }
               final tags = items.expand((diary) => diary.tags).toSet().toList()
                 ..sort();
-              final tag = tags.contains(selectedTag) ? selectedTag : null;
-              final filtered = filterDiaries(items, searchQuery, tag,
-                  options: searchOptions);
+              final tag =
+                  tags.contains(widget.selectedTag) ? widget.selectedTag : null;
+              final filtered = _index!.search(widget.searchQuery, tag,
+                  options: widget.searchOptions);
+              final terms = diarySearchTerms(widget.searchQuery);
+              final colors = Theme.of(context).colorScheme;
+              final highlight = TextStyle(
+                color: colors.onTertiaryContainer,
+                backgroundColor: colors.tertiaryContainer,
+                fontWeight: FontWeight.bold,
+              );
+              final activeFilters = widget.searchQuery.trim().isNotEmpty ||
+                  widget.selectedTag != null ||
+                  widget.searchOptions.isActive;
               return Column(children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: DropdownButton<String?>(
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(children: [
+                    DropdownButton<String?>(
                       value: tag,
                       items: [
                         const DropdownMenuItem<String?>(
@@ -99,15 +149,21 @@ class DiaryListBody extends StatelessWidget {
                               child: Text(name),
                             )),
                       ],
-                      onChanged: onTag,
+                      onChanged: widget.onTag,
                     ),
-                  ),
+                    if (activeFilters && widget.onClearFilters != null)
+                      TextButton.icon(
+                        onPressed: widget.onClearFilters,
+                        icon: const Icon(Icons.clear_all),
+                        label: const Text('清除全部筛选'),
+                      ),
+                  ]),
                 ),
                 Expanded(
                   child: filtered.isEmpty
                       ? const Center(child: Text('没有匹配的日记'))
                       : RefreshIndicator(
-                          onRefresh: onRefresh,
+                          onRefresh: widget.onRefresh,
                           child: ListView.separated(
                             padding: const EdgeInsets.all(12),
                             itemCount: filtered.length,
@@ -115,41 +171,55 @@ class DiaryListBody extends StatelessWidget {
                                 const SizedBox(height: 8),
                             itemBuilder: (context, index) {
                               final diary = filtered[index];
-                              final active = playingDiaryId == diary.id &&
-                                  snapshot.stage != PlaybackStage.completed;
-                              final selected = selectedIds.contains(diary.id);
+                              final playing =
+                                  widget.playingDiaryId == diary.id &&
+                                      widget.snapshot.stage !=
+                                          PlaybackStage.completed;
+                              final selected =
+                                  widget.selectedIds.contains(diary.id);
+                              final labels = diary.tags.isEmpty
+                                  ? ''
+                                  : '${diary.tags.map((tag) => '#$tag').join(' ')}\n';
+                              final preview =
+                                  '${_stageLabel(diary)} · 查看 ${diary.viewCount} 次\n'
+                                  '$labels${diary.content}';
                               return Card(
-                                color: selected
-                                    ? Theme.of(context)
-                                        .colorScheme
-                                        .secondaryContainer
-                                    : null,
+                                color:
+                                    selected ? colors.secondaryContainer : null,
                                 child: ListTile(
-                                  onTap: selectionMode
-                                      ? () => onToggleSelection?.call(diary.id)
-                                      : () => onOpen(diary),
-                                  onLongPress: onToggleSelection == null
+                                  onTap: widget.selectionMode
+                                      ? () => widget.onToggleSelection
+                                          ?.call(diary.id)
+                                      : () => widget.onOpen(diary),
+                                  onLongPress: widget.onToggleSelection == null
                                       ? null
-                                      : () => onToggleSelection!.call(diary.id),
-                                  leading: selectionMode
+                                      : () => widget.onToggleSelection!
+                                          .call(diary.id),
+                                  leading: widget.selectionMode
                                       ? Checkbox(
                                           value: selected,
-                                          onChanged: (_) =>
-                                              onToggleSelection?.call(diary.id),
+                                          onChanged: (_) => widget
+                                              .onToggleSelection
+                                              ?.call(diary.id),
                                         )
                                       : null,
-                                  title: Text(diary.date),
-                                  subtitle: Text(
-                                    '${_stageLabel(diary)} \u00b7 \u67e5\u770b ${diary.viewCount} \u6b21\n${diary.content}',
+                                  title: Text.rich(TextSpan(
+                                    children: diaryHighlightSpans(
+                                        diary.date, terms, highlight),
+                                  )),
+                                  subtitle: Text.rich(
+                                    TextSpan(
+                                        children: diaryHighlightSpans(
+                                            preview, terms, highlight)),
                                     maxLines: 4,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                  trailing: selectionMode
+                                  trailing: widget.selectionMode
                                       ? null
                                       : IconButton(
-                                          tooltip: active ? '??' : '??',
-                                          onPressed: () => onPlay(diary),
-                                          icon: Icon(active
+                                          tooltip: playing ? '暂停朗读' : '播放朗读',
+                                          onPressed: () => widget.onPlay(diary),
+                                          icon: Icon(playing
                                               ? Icons.pause
                                               : Icons.play_arrow),
                                         ),

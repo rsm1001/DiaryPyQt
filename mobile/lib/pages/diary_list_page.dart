@@ -225,19 +225,16 @@ class _DiaryListPageState extends State<DiaryListPage>
       return local;
     }
   }
-
   Future<void> _updatePendingCount() async {
     final pending = await _sync.pendingCount();
     if (mounted && pending != _pendingCount) {
       setState(() => _pendingCount = pending);
     }
   }
-
   Future<void> _refreshLocalList() async {
     final local = await _store.getDiaries();
     if (mounted) setState(() => _diaries = Future.value(local));
   }
-
   Future<void> _recordPlaybackView(Diary diary) async {
     try {
       await _sync.recordView(diary);
@@ -257,7 +254,6 @@ class _DiaryListPageState extends State<DiaryListPage>
       await _updatePendingCount();
     }
   }
-
   Future<AudioAsset> _ensureAudio(Diary diary) {
     final existing = _audioPrefetch[diary.id];
     if (existing != null) return existing;
@@ -269,7 +265,6 @@ class _DiaryListPageState extends State<DiaryListPage>
     _audioPrefetch[diary.id] = future;
     return future;
   }
-
   Future<void> _prefetchRandomPlan() async {
     if (!_randomMode) return;
     for (final diary in _randomPlanner.peek(limit: 3)) {
@@ -280,7 +275,6 @@ class _DiaryListPageState extends State<DiaryListPage>
       unawaited(_prefetchAudio(diary));
     }
   }
-
   Future<void> _prefetchAudio(Diary diary) async {
     try {
       await _ensureAudio(diary);
@@ -296,7 +290,6 @@ class _DiaryListPageState extends State<DiaryListPage>
       if (mounted && _randomMode) unawaited(_prefetchRandomPlan());
     }
   }
-
   void _onSyncError(Object error, StackTrace stack) {
     developer.log(
       '本地同步状态失败 request_id=${DateTime.now().microsecondsSinceEpoch}',
@@ -503,7 +496,9 @@ class _DiaryListPageState extends State<DiaryListPage>
   }
 
   Future<void> _openAdvancedSearch() async {
-    final selected = await showAdvancedSearchDialog(context, _searchOptions);
+    final tags = (await _store.getDiaries()).expand((diary) => diary.tags).toSet().toList()..sort();
+    if (!mounted) return;
+    final selected = await showAdvancedSearchDialog(context, _searchOptions, availableTags: tags);
     if (selected != null && mounted) {
       setState(() => _searchOptions = selected);
     }
@@ -552,7 +547,7 @@ class _DiaryListPageState extends State<DiaryListPage>
     _playRequest++;
     final diaries = await _store.getDiaries();
     if (!mounted || token != _randomToken) return;
-    final candidates = filterDiaries(diaries, _searchQuery, _selectedTag);
+    final candidates = filterDiaries(diaries, _searchQuery, _selectedTag, options: _searchOptions);
     if (candidates.isEmpty) {
       if (mounted) {
         setState(() => _errorMessage =
@@ -784,6 +779,11 @@ class _DiaryListPageState extends State<DiaryListPage>
               snapshot: _snapshot,
               onSearch: (text) => setState(() => _searchQuery = text),
               onTag: (tag) => setState(() => _selectedTag = tag),
+              onClearFilters: () => setState(() {
+                _searchQuery = '';
+                _selectedTag = null;
+                _searchOptions = const DiarySearchOptions();
+              }),
               onRefresh: _syncTrigger.request,
               selectionMode: _selectionMode,
               selectedIds: _selectedDiaryIds,

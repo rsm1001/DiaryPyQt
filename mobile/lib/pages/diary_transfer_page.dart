@@ -3,7 +3,8 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 
 import '../platform/diary_document_adapter.dart';
-import '../services/diary_transfer.dart';
+import '../transfer/diary_csv.dart';
+import '../transfer/diary_transfer.dart';
 import '../services/local_store.dart';
 import '../services/sync_manager.dart';
 
@@ -29,15 +30,16 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
   bool _busy = false;
   String? _message;
 
-  Future<void> _export() async {
+  Future<void> _export({bool csv = false}) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
       final diaries = await widget.store.getDiaries();
-      final saved = await widget.documents.saveJson(exportDiariesJson(diaries));
+      final saved = csv
+          ? await widget.documents.saveCsv(exportDiariesCsv(diaries))
+          : await widget.documents.saveJson(exportDiariesJson(diaries));
       if (mounted && saved) {
-        setState(() => _message =
-            '\u5df2\u5bfc\u51fa ${diaries.length} \u7bc7\u65e5\u8bb0');
+        setState(() => _message = '已导出 ${diaries.length} 篇日记');
       }
     } catch (error, stack) {
       developer.log(
@@ -45,40 +47,46 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
           name: 'diary.transfer',
           error: error,
           stackTrace: stack);
-      if (mounted) {
-        setState(() => _message =
-            '\u5bfc\u51fa\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u6587\u4ef6\u6743\u9650');
-      }
+      if (mounted) setState(() => _message = '导出失败，请检查文件权限');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _import() async {
+  Future<void> _import({bool csv = false}) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final source = await widget.documents.pickJson();
+      final source = csv
+          ? await widget.documents.pickCsv()
+          : await widget.documents.pickJson();
       if (source == null || !mounted) return;
-      final parsed = parseDiaryImport(source);
-      final preview =
-          previewDiaryImport(parsed, await widget.store.getDiaries());
+      final parsedCsv = csv ? parseDiariesCsv(source) : null;
+      final parsed = parsedCsv?.entries ?? parseDiaryImport(source);
+      final preview = previewDiaryImport(
+        parsed,
+        await widget.store.getDiaries(),
+        errors: parsedCsv?.errors ?? 0,
+      );
       if (!mounted) return;
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('\u786e\u8ba4\u5bfc\u5165'),
+          title: const Text('确认导入'),
           content: Text(
-            '\u53ef\u65b0\u5efa ${preview.entries.length} \u7bc7\uff0c\u8df3\u8fc7 ${preview.skipped} \u7bc7\u91cd\u590d\u3002\n'
-            '\u4ec5\u5bfc\u5165\u65e5\u671f\u3001\u6b63\u6587\u548c\u6807\u7b7e\uff1b\u5386\u53f2\u67e5\u770b\u6b21\u6570\u4e0d\u4f1a\u88ab\u91cd\u590d\u5bfc\u5165\u3002',
+            '可新建 ${preview.entries.length} 篇，跳过 ${preview.skipped} 篇重复，错误 ${preview.errors} 篇。\n'
+            '仅导入日期、正文和标签；历史查看次数不会被重复导入。'
+            '${preview.errors > 0 ? '\n请修复错误行后重新导入，整批数据尚未写入。' : ''}',
           ),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('\u53d6\u6d88')),
+                child: const Text('取消')),
             FilledButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('\u5bfc\u5165')),
+                onPressed: preview.errors > 0 || preview.entries.isEmpty
+                    ? null
+                    : () => Navigator.pop(dialogContext, true),
+                child: const Text('导入')),
           ],
         ),
       );
@@ -86,8 +94,7 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
       final count = await widget.sync.importDiaries(preview.entries);
       await widget.onImported();
       if (mounted) {
-        setState(() => _message =
-            '\u5df2\u5bfc\u5165 $count \u7bc7\uff0c\u5176\u4f59\u5df2\u8df3\u8fc7');
+        setState(() => _message = '已导入 $count 篇，其余已跳过');
       }
     } catch (error, stack) {
       developer.log(
@@ -95,10 +102,7 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
           name: 'diary.transfer',
           error: error,
           stackTrace: stack);
-      if (mounted) {
-        setState(() => _message =
-            '\u5bfc\u5165\u5931\u8d25\uff1a\u4ec5\u63a5\u53d7\u6709\u6548\u7684 JSON \u65e5\u8bb0\u6587\u4ef6');
-      }
+      if (mounted) setState(() => _message = '导入失败：请检查文件格式和大小');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -106,28 +110,36 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar:
-            AppBar(title: const Text('\u65e5\u8bb0\u5bfc\u5165\u5bfc\u51fa')),
+        appBar: AppBar(title: const Text('日记导入导出')),
         body: ListView(padding: const EdgeInsets.all(16), children: [
           if (_busy) const LinearProgressIndicator(),
           ListTile(
             leading: const Icon(Icons.upload_file),
-            title: const Text('\u5bfc\u51fa JSON \u5907\u4efd'),
-            subtitle: const Text(
-                '\u5bfc\u51fa\u5f53\u524d\u7f13\u5b58\u7684\u65e5\u8bb0\uff0c\u5305\u542b\u67e5\u770b\u6b21\u6570'),
-            onTap: _busy ? null : _export,
+            title: const Text('导出 JSON 备份'),
+            subtitle: const Text('导出当前缓存的日记，包含查看次数'),
+            onTap: _busy ? null : () => _export(),
           ),
           ListTile(
             leading: const Icon(Icons.download),
-            title: const Text('\u4ece JSON \u5bfc\u5165'),
-            subtitle: const Text(
-                '\u65b0\u5efa\u4e0d\u91cd\u590d\u7684\u65e5\u8bb0\uff0c\u652f\u6301\u65ad\u7f51\u5f85\u540c\u6b65'),
-            onTap: _busy ? null : _import,
+            title: const Text('从 JSON 导入'),
+            subtitle: const Text('新建不重复的日记，支持断网待同步'),
+            onTap: _busy ? null : () => _import(),
+          ),
+          ListTile(
+            leading: const Icon(Icons.table_view),
+            title: const Text('导出 CSV'),
+            subtitle: const Text('导出本地日记，与电脑端 CSV 字段兼容'),
+            onTap: _busy ? null : () => _export(csv: true),
+          ),
+          ListTile(
+            leading: const Icon(Icons.file_open),
+            title: const Text('从 CSV 导入'),
+            subtitle: const Text('先预览再导入；有错误行时整批拒绝'),
+            onTap: _busy ? null : () => _import(csv: true),
           ),
           const Padding(
             padding: EdgeInsets.all(12),
-            child: Text(
-                '\u5bfc\u5165\u4e0d\u8986\u76d6\u5df2\u6709\u65e5\u8bb0\uff0c\u4e0d\u5bfc\u5165\u65e7 ID \u6216\u5386\u53f2\u67e5\u770b\u7edf\u8ba1\u3002'),
+            child: Text('导入不覆盖已有日记，不导入旧 ID 或历史查看统计。CSV 不是数据库备份。'),
           ),
           if (_message != null)
             Padding(

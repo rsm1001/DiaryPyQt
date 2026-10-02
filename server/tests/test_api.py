@@ -1,4 +1,6 @@
 """日记后端基础和音频接口测试。"""
+import sqlite3
+from contextlib import closing
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
@@ -300,6 +302,34 @@ def test_desktop_baseline_is_idempotent_and_keeps_server_views():
         assert reopened.import_view_baseline(
             created["id"], baseline["source_id"], 12, "2026-09-26T12:00:00Z"
         )["view_count"] == 14
+
+
+def test_zero_view_baseline_and_legacy_retry_keep_view_time():
+    with TemporaryDirectory() as temp_dir:
+        settings = build_settings(temp_dir)
+        with TestClient(create_app(settings=settings)) as client:
+            diary_id = client.post("/api/v1/diaries", json={
+                "date": "2026-09-27", "content": "zero baseline", "tags": [],
+            }).json()["id"]
+            url = f"/api/v1/diaries/{diary_id}"
+            baseline = {"source_id": "zero-baseline", "view_count": 0, "last_viewed_at": None}
+            assert client.post(url + "/view-baselines", json=baseline).status_code == 200
+            event = {"event_id": "offline-view", "viewed_at": "2026-09-27T12:00:00Z"}
+            first = client.post(url + "/view", json=event)
+            assert first.status_code == 200
+            assert first.json()["viewed_at"] == event["viewed_at"]
+            assert first.json()["view_count"] == 1
+
+            with closing(sqlite3.connect(settings.db_path)) as connection:
+                with connection:
+                    connection.execute(
+                        "UPDATE diary_views SET last_viewed_at = NULL WHERE diary_id = ?", (diary_id,)
+                    )
+            retry = client.post(url + "/view", json=event)
+            assert retry.status_code == 200
+            assert retry.json()["viewed_at"] == event["viewed_at"]
+            assert retry.json()["view_count"] == 1
+            assert client.get(url).json()["last_viewed_at"] == event["viewed_at"]
 
 
 def test_health_advertises_idempotent_view_events():

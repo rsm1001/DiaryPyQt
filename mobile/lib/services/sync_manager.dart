@@ -11,7 +11,7 @@ import '../models/diary.dart';
 import '../tags/batch_tag_policy.dart';
 import '../tags/batch_tag_repository.dart';
 import 'diary_api.dart';
-import 'diary_transfer.dart';
+import '../transfer/diary_transfer.dart';
 import 'local_store.dart';
 
 class SyncManager {

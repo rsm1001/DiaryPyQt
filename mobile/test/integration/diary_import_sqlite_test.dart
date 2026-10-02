@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import 'package:diary_mobile/models/diary.dart';
+import 'package:diary_mobile/transfer/diary_csv.dart';
 import 'package:diary_mobile/services/diary_api.dart';
-import 'package:diary_mobile/services/diary_transfer.dart';
+import 'package:diary_mobile/transfer/diary_transfer.dart';
 import 'package:diary_mobile/services/local_store.dart';
 import 'package:diary_mobile/services/sync_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -48,6 +50,32 @@ void main() {
     expect((await store.getDiaries()).first.viewCount, 0);
   });
 
+  test('CSV 断网导入写入待同步队列，重复时保留原查看次数', () async {
+    const content = '同一篇日记';
+    await store.saveDiary(const Diary(
+      id: 'existing',
+      date: '2026-09-29',
+      content: content,
+      contentHash: '',
+      version: 1,
+      tags: ['原标签'],
+      updatedAt: '',
+      viewCount: 13,
+    ));
+    final parsed = parseDiariesCsv('date,content,tags,view_count\n'
+        '2026-09-29,同一篇日记,"[""新标签""]",99\n'
+        '2026-09-30,新增日记,"[""工作""]",78\n');
+    expect(parsed.errors, 0);
+    final sync = SyncManager(api: api, store: store);
+    expect(await sync.importDiaries(parsed.entries), 1);
+    final existing = await store.getDiary('existing');
+    expect(existing!.viewCount, 13);
+    expect(existing.tags, ['原标签']);
+    final imported = (await store.getDiaries())
+        .singleWhere((diary) => diary.content == '新增日记');
+    expect(imported.viewCount, 0);
+    expect((await store.getOutbox()).single['action'], 'create');
+  });
   test('outbox failure rolls back all imported diaries', () async {
     await database.execute('''
       CREATE TRIGGER reject_import BEFORE INSERT ON outbox

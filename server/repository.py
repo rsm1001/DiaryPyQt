@@ -193,13 +193,21 @@ class DiaryRepository:
                     ).fetchone()
                     if existing["diary_id"] != diary_id:
                         raise ValueError("查看事件 ID 已用于其他日记")
+                    connection.execute(
+                        """UPDATE diary_views SET last_viewed_at =
+                           (SELECT MAX(viewed_at) FROM diary_view_events WHERE diary_id = ?)
+                           WHERE diary_id = ? AND last_viewed_at IS NULL""",
+                        (diary_id, diary_id),
+                    )
             if accepted:
                 connection.execute(
                     """INSERT INTO diary_views (diary_id, view_count, last_viewed_at)
                        VALUES (?, 1, ?)
                        ON CONFLICT(diary_id) DO UPDATE SET
                            view_count = diary_views.view_count + 1,
-                           last_viewed_at = MAX(diary_views.last_viewed_at, excluded.last_viewed_at)""",
+                           last_viewed_at = CASE
+                               WHEN diary_views.last_viewed_at IS NULL THEN excluded.last_viewed_at
+                               ELSE MAX(diary_views.last_viewed_at, excluded.last_viewed_at) END""",
                     (diary_id, viewed_at),
                 )
             row = connection.execute(
