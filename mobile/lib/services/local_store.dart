@@ -9,6 +9,7 @@ import '../models/audio_asset.dart';
 import '../models/diary.dart';
 import '../models/diary_view_result.dart';
 import '../statistics/device_view_repository.dart';
+import '../voice/voice_cache_repository.dart';
 import 'random_selector.dart';
 
 class LocalStore {
@@ -23,7 +24,7 @@ class LocalStore {
     final directory = await getApplicationDocumentsDirectory();
     _database = await openDatabase(
       path.join(directory.path, 'diary_mobile.db'),
-      version: 2,
+      version: 3,
       onUpgrade: upgradeSchema,
       onCreate: createSchema,
     );
@@ -33,13 +34,13 @@ class LocalStore {
   static Future<void> upgradeSchema(
       Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) await DeviceViewRepository.createSchema(db);
+    if (oldVersion < 3) await VoiceCacheRepository.upgradeSchema(db);
   }
 
   static Future<void> createSchema(Database db, int version) async {
     await db.execute(
         'CREATE TABLE diaries (id TEXT PRIMARY KEY, json TEXT NOT NULL, version INTEGER NOT NULL, content_hash TEXT NOT NULL)');
-    await db.execute(
-        'CREATE TABLE audio_cache (diary_id TEXT NOT NULL, voice_id TEXT NOT NULL, content_hash TEXT NOT NULL, file_hash TEXT NOT NULL, duration_ms INTEGER NOT NULL, file_path TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY (diary_id, voice_id))');
+    await VoiceCacheRepository.createSchema(db);
     await db.execute(
         'CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     await db.execute(
@@ -365,48 +366,23 @@ class LocalStore {
   }
 
   Future<AudioAsset?> getAudio(
-      String diaryId, String voiceId, String contentHash) async {
-    final rows = await (await database).query('audio_cache',
-        where: voiceId.isEmpty
-            ? 'diary_id = ? AND content_hash = ?'
-            : 'diary_id = ? AND voice_id = ? AND content_hash = ?',
-        whereArgs: voiceId.isEmpty
-            ? [diaryId, contentHash]
-            : [diaryId, voiceId, contentHash],
-        orderBy: 'rowid DESC',
-        limit: 1);
-    if (rows.isEmpty) return null;
-    final row = rows.first;
-    final filePath = row['file_path']! as String;
-    if (!await File(filePath).exists()) return null;
-    return AudioAsset.fromJson(_decode(row['json']! as String), '')
-        .copyWith(localPath: filePath);
-  }
+          String diaryId, String voiceId, String contentHash) async =>
+      VoiceCacheRepository(await database).get(diaryId, voiceId, contentHash);
 
-  Future<void> saveAudio(AudioAsset asset, String filePath) async {
-    final db = await database;
-    await db.insert(
-        'audio_cache',
-        {
-          'diary_id': asset.diaryId,
-          'voice_id': asset.voiceId,
-          'content_hash': asset.contentHash,
-          'file_hash': asset.fileHash,
-          'duration_ms': asset.durationMs,
-          'file_path': filePath,
-          'json': _encode({
-            'id': asset.id,
-            'diary_id': asset.diaryId,
-            'voice_id': asset.voiceId,
-            'content_hash': asset.contentHash,
-            'file_hash': asset.fileHash,
-            'duration_ms': asset.durationMs,
-            'download_url': asset.downloadUrl
-          }),
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace);
-  }
+  Future<void> saveAudio(AudioAsset asset, String filePath) async =>
+      VoiceCacheRepository(await database).save(asset, filePath);
 
+  Future<String?> defaultVoice(String serverUrl) async =>
+      VoiceCacheRepository(await database).defaultVoice(serverUrl);
+
+  Future<void> saveDefaultVoice(String serverUrl, String voiceId) async =>
+      VoiceCacheRepository(await database).saveDefaultVoice(serverUrl, voiceId);
+  Future<String?> selectedVoice(String serverUrl) async =>
+      VoiceCacheRepository(await database).selectedVoice(serverUrl);
+
+  Future<void> saveSelectedVoice(String serverUrl, String voiceId) async =>
+      VoiceCacheRepository(await database)
+          .saveSelectedVoice(serverUrl, voiceId);
   Future<String> audioDirectory() async {
     final directory = await getApplicationDocumentsDirectory();
     final audioDirectory = Directory(path.join(directory.path, 'audio'));

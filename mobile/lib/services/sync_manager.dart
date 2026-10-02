@@ -286,30 +286,67 @@ class SyncManager {
     return diaries;
   }
 
-  Future<AudioAsset> ensureAudio(Diary diary, {String voiceId = ''}) async {
-    final cached = await store.getAudio(diary.id, voiceId, diary.contentHash);
-    if (cached != null) return cached;
+  Future<AudioAsset> ensureAudio(
+    Diary diary, {
+    String voiceId = '',
+    void Function(String status)? onStatus,
+  }) async {
+    final defaultVoice =
+        voiceId.isEmpty ? await store.defaultVoice(api.cacheScope) : null;
+    final cached = voiceId.isEmpty && defaultVoice == null
+        ? null
+        : await store.getAudio(
+            diary.id, defaultVoice ?? voiceId, diary.contentHash);
+    if (cached != null) {
+      onStatus?.call('已从离线缓存读取音频');
+      return cached;
+    }
+    onStatus?.call('正在生成音频');
     final asset = await api.generateAudio(diary.id,
         voiceId: voiceId.isEmpty ? null : voiceId);
+    if (asset.diaryId != diary.id ||
+        (voiceId.isNotEmpty && asset.voiceId != voiceId) ||
+        (diary.contentHash.isNotEmpty &&
+            asset.contentHash != diary.contentHash)) {
+      throw const DiaryApiException('音频资源与当前日记或语音包不匹配');
+    }
     final directory = await store.audioDirectory();
-    final filePath =
-        '$directory/${diary.id}_${asset.voiceId}_${diary.contentHash.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_')}.mp3';
-    final partialPath = '$filePath.part';
-    final partialFile = File(partialPath);
+    // 文件名使用内容寻址，旧语音和旧正文的文件均可保留。
+    final key = sha256.convert(utf8.encode(
+        jsonEncode([diary.id, asset.voiceId, diary.contentHash, asset.id])));
+    final filePath = '$directory/$key.mp3';
+    final partialFile = File('$filePath.part');
+    onStatus?.call('正在下载音频');
     await api.downloadAudioToFile(asset, partialFile);
-    final bytes = await partialFile.readAsBytes();
-    final actualHash = sha256.convert(bytes).toString();
-    if (asset.fileHash.isNotEmpty && !asset.fileHash.contains(actualHash)) {
+    onStatus?.call('正在校验音频');
+    final actualHash =
+        sha256.convert(await partialFile.readAsBytes()).toString();
+    final expectedHash = asset.fileHash.replaceFirst('sha256:', '');
+    if (expectedHash.isNotEmpty && actualHash != expectedHash) {
       try {
         await partialFile.delete();
       } on FileSystemException {
-        // ?????????????????????
+        // 校验失败的临时文件下次下载会重新覆盖。
       }
-      throw const DiaryApiException('Audio hash validation failed');
+      throw const DiaryApiException('音频文件校验失败');
     }
+    final file = File(filePath);
+    if (await file.exists()) await file.delete();
     await partialFile.rename(filePath);
     final saved = asset.copyWith(localPath: filePath);
     await store.saveAudio(saved, filePath);
+    if (voiceId.isEmpty) {
+      await store.saveDefaultVoice(api.cacheScope, asset.voiceId);
+    }
+    onStatus?.call('音频已缓存');
+    developer.log(
+        jsonEncode({
+          'request_id': DateTime.now().microsecondsSinceEpoch.toString(),
+          'operation': 'audio_cached',
+          'diary_id': diary.id,
+          'voice_id': asset.voiceId,
+        }),
+        name: 'diary.mobile');
     return saved;
   }
 }

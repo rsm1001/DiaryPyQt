@@ -12,6 +12,7 @@ import '../models/diary.dart';
 import '../models/diary_view_result.dart';
 import '../models/diary_tag.dart';
 import '../models/server_statistics.dart';
+import '../voice/voice_profile.dart';
 
 class AudioDownloadChunk {
   const AudioDownloadChunk({required this.bytes, required this.partial});
@@ -39,6 +40,7 @@ class DiaryApi {
             .replaceFirst(RegExp(r'/+$'), '');
   final http.Client _client;
   final String _baseUrl;
+  String get cacheScope => _baseUrl;
   final String? _password;
   Map<String, String> get _authHeaders =>
       _password == null || _password!.isEmpty
@@ -281,6 +283,16 @@ class DiaryApi {
     _ensureSuccess(response);
   }
 
+  Future<List<VoiceProfile>> fetchVoices() async => _networkSafe(() async {
+        final response = await _client
+            .get(Uri.parse('$_baseUrl/api/v1/voices'), headers: _authHeaders)
+            .timeout(_timeout);
+        _ensureSuccess(response);
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return (decoded['items'] as List<dynamic>)
+            .map((item) => VoiceProfile.fromJson(item as Map<String, dynamic>))
+            .toList(growable: false);
+      });
   Future<AudioAsset> generateAudio(String diaryId, {String? voiceId}) async {
     return _networkSafe(() async {
       final response = await _client
