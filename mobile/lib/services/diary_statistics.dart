@@ -56,3 +56,18 @@ DiaryStatistics calculateDiaryStatistics(List<Diary> diaries) {
     longestContent: longest,
   );
 }
+
+Map<String, int> cachedDiaryDays(List<Diary> diaries, DateTime month) {
+  final counts = <String, int>{};
+  for (final diary in diaries) {
+    final date = DateTime.tryParse(diary.date);
+    if (date == null || date.year != month.year || date.month != month.month) {
+      continue;
+    }
+    final key = '${date.year.toString().padLeft(4, '0')}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return Map.unmodifiable(counts);
+}

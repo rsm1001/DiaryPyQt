@@ -8,6 +8,7 @@ import 'package:sqflite/sqflite.dart';
 import '../models/audio_asset.dart';
 import '../models/diary.dart';
 import '../models/diary_view_result.dart';
+import '../statistics/device_view_repository.dart';
 import 'random_selector.dart';
 
 class LocalStore {
@@ -22,10 +23,16 @@ class LocalStore {
     final directory = await getApplicationDocumentsDirectory();
     _database = await openDatabase(
       path.join(directory.path, 'diary_mobile.db'),
-      version: 1,
+      version: 2,
+      onUpgrade: upgradeSchema,
       onCreate: createSchema,
     );
     return _database!;
+  }
+
+  static Future<void> upgradeSchema(
+      Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) await DeviceViewRepository.createSchema(db);
   }
 
   static Future<void> createSchema(Database db, int version) async {
@@ -37,6 +44,7 @@ class LocalStore {
         'CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     await db.execute(
         'CREATE TABLE outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id TEXT NOT NULL, action TEXT NOT NULL, base_version INTEGER, json TEXT NOT NULL)');
+    await DeviceViewRepository.createSchema(db);
   }
 
   Future<List<Diary>> getDiaries() async {
@@ -46,6 +54,9 @@ class LocalStore {
         .where((diary) => diary.deletedAt == null)
         .toList(growable: false);
   }
+
+  Future<DeviceViewHistory> getDeviceViewHistory(DateTime month) async =>
+      DeviceViewRepository(await database).month(month);
 
   Future<Diary?> getDiary(String id) async {
     final rows = await (await database).query(
@@ -270,6 +281,7 @@ class LocalStore {
           where: 'id = ?', whereArgs: [diaryId], limit: 1);
       if (rows.isEmpty) throw StateError('本地日记不存在，无法记录查看');
       final diary = Diary.fromJson(_decode(rows.first['json'] as String));
+      await DeviceViewRepository.record(transaction, eventId, viewedAt);
       final id = await transaction.insert('outbox', {
         'entity_id': diaryId,
         'action': 'view',
@@ -328,6 +340,17 @@ class LocalStore {
             },
             where: 'id = ?',
             whereArgs: [diaryId]);
+      }
+      final pending = await transaction.query('outbox',
+          columns: ['json'],
+          where: 'id = ? AND action = ?',
+          whereArgs: [id, 'view'],
+          limit: 1);
+      if (pending.isNotEmpty) {
+        final eventId = _decode(pending.first['json'] as String)['event_id'];
+        if (eventId is String) {
+          await DeviceViewRepository.markSynced(transaction, eventId);
+        }
       }
       await transaction.delete('outbox', where: 'id = ?', whereArgs: [id]);
     });

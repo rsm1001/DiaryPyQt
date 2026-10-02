@@ -523,7 +523,7 @@ class _DiaryListPageState extends State<DiaryListPage>
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-          builder: (_) => DiaryStatisticsPage(diaries: diaries, api: _api)),
+          builder: (_) => DiaryStatisticsPage(diaries: diaries, api: _api, store: _store)),
     );
   }
 
