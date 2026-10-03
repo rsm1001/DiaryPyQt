@@ -161,8 +161,10 @@ class DiaryService:
         self._record_change(result, "upsert")
         return result
 
-    def permanently_delete_diary(self, diary_id: str) -> None:
-        if not self.repository.permanently_delete(diary_id):
+    def permanently_delete_diary(self, diary_id: str, version: Optional[int] = None) -> None:
+        if not self.repository.permanently_delete(diary_id, version):
+            if version is not None:
+                raise ServiceError("DIARY_TRASH_VERSION_CONFLICT", "回收站日记版本已变化，请刷新后重试", 409)
             raise ServiceError("DIARY_TRASH_NOT_FOUND", "回收站中不存在该日记", 404)
 
     def list_tags(self) -> List[Dict[str, Any]]:

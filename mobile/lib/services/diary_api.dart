@@ -145,15 +145,22 @@ class DiaryApi {
   }
 
   Future<List<Diary>> fetchTrash() async {
-    final response = await _client
-        .get(Uri.parse('$_baseUrl/api/v1/trash?limit=500&offset=0'),
-            headers: _authHeaders)
-        .timeout(_timeout);
-    _ensureSuccess(response);
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return (body['items'] as List<dynamic>? ?? const [])
-        .map((item) => Diary.fromJson(item as Map<String, dynamic>))
-        .toList(growable: false);
+    const pageSize = 500;
+    final diaries = <Diary>[];
+    while (true) {
+      final response = await _client
+          .get(
+              Uri.parse(
+                  '$_baseUrl/api/v1/trash?limit=$pageSize&offset=${diaries.length}'),
+              headers: _authHeaders)
+          .timeout(_timeout);
+      _ensureSuccess(response);
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final items = body['items'] as List<dynamic>? ?? const [];
+      diaries.addAll(
+          items.map((item) => Diary.fromJson(item as Map<String, dynamic>)));
+      if (items.length < pageSize) return diaries;
+    }
   }
 
   Future<Diary> restoreDiary(Diary diary) async {
@@ -174,7 +181,7 @@ class DiaryApi {
     final response = await _client
         .delete(
             Uri.parse(
-                '$_baseUrl/api/v1/trash/${Uri.encodeComponent(diary.id)}'),
+                '$_baseUrl/api/v1/trash/${Uri.encodeComponent(diary.id)}/versions/${diary.version}'),
             headers: _mutationHeaders(requestId))
         .timeout(_timeout);
     _logMutation('permanently_delete_diary', requestId, response.statusCode);

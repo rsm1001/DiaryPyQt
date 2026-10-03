@@ -167,17 +167,21 @@ class DiaryRepository:
             row = connection.execute("SELECT * FROM diaries WHERE id = ?", (diary_id,)).fetchone()
             return self._record(connection, row)
 
-    def permanently_delete(self, diary_id: str) -> bool:
+    def permanently_delete(self, diary_id: str, expected_version: Optional[int] = None) -> bool:
         with self._connection() as connection:
-            row = connection.execute(
-                "SELECT 1 FROM diaries WHERE id = ? AND deleted_at IS NOT NULL", (diary_id,)
-            ).fetchone()
-            if row is None:
+            if expected_version is None:
+                deleted = connection.execute(
+                    "DELETE FROM diaries WHERE id = ? AND deleted_at IS NOT NULL", (diary_id,)
+                )
+            else:
+                deleted = connection.execute(
+                    "DELETE FROM diaries WHERE id = ? AND deleted_at IS NOT NULL AND version = ?",
+                    (diary_id, expected_version),
+                )
+            if deleted.rowcount != 1:
                 return False
             connection.execute("DELETE FROM audio_assets WHERE diary_id = ?", (diary_id,))
-            connection.execute("DELETE FROM diaries WHERE id = ? AND deleted_at IS NOT NULL", (diary_id,))
             return True
-
     def record_view(self, diary_id: str, viewed_at: str, event_id: Optional[str] = None) -> Dict[str, Any]:
         with self._connection() as connection:
             accepted = True

@@ -146,6 +146,7 @@ void main() {
     await api.permanentlyDeleteDiary(trash.single);
     expect(
         requests.map((request) => request.method), ['GET', 'POST', 'DELETE']);
+    expect(requests.last.url.path, endsWith('/trash/entry-id/versions/1'));
     api.dispose();
   });
 

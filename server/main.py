@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Iterator, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, FastAPI, Query, Request, Response, status
+from fastapi import APIRouter, Depends, FastAPI, Path as ApiPath, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
@@ -131,6 +131,17 @@ def permanently_delete_trash(
     service.permanently_delete_diary(diary_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+
+@router.delete("/trash/{diary_id}/versions/{version}", status_code=status.HTTP_204_NO_CONTENT)
+def permanently_delete_trash_versioned(
+    diary_id: str,
+    version: int = ApiPath(ge=1),
+    service: DiaryService = Depends(get_service),
+) -> Response:
+    """仅在回收站日记版本未变化时永久删除。"""
+    logger.info("trash_versioned_delete_requested", extra={"diary_id": diary_id})
+    service.permanently_delete_diary(diary_id, version)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.get("/diaries/{diary_id}", response_model=DiaryResponse)
 def get_diary(diary_id: str, service: DiaryService = Depends(get_service)) -> DiaryResponse:

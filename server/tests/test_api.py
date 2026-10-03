@@ -273,6 +273,27 @@ def test_trash_restore_and_permanent_delete():
             assert client.get("/api/v1/trash").json()["items"] == []
 
 
+def test_versioned_trash_delete_rejects_stale_or_restored_diaries():
+    with TemporaryDirectory() as temp_dir:
+        with TestClient(create_app(settings=build_settings(temp_dir))) as client:
+            created = client.post(
+                "/api/v1/diaries",
+                json={"date": "2026-10-03", "content": "版本保护", "tags": []},
+            ).json()
+            diary_id = created["id"]
+            url = f"/api/v1/trash/{diary_id}/versions"
+            assert client.delete(f"{url}/1").status_code == 409
+            assert client.delete(f"/api/v1/diaries/{diary_id}?version=1").status_code == 204
+            assert client.delete(f"{url}/1").status_code == 409
+            assert client.get("/api/v1/trash").json()["items"][0]["id"] == diary_id
+            assert client.post(f"/api/v1/trash/{diary_id}/restore?version=2").status_code == 200
+            assert client.delete(f"{url}/2").status_code == 409
+            assert client.get(f"/api/v1/diaries/{diary_id}").status_code == 200
+            assert client.delete(f"/api/v1/diaries/{diary_id}?version=3").status_code == 204
+            assert client.delete(f"{url}/2").status_code == 409
+            assert client.delete(f"{url}/4").status_code == 204
+            assert client.get("/api/v1/trash").json()["items"] == []
+
 def test_desktop_baseline_is_idempotent_and_keeps_server_views():
     with TemporaryDirectory() as temp_dir:
         settings = build_settings(temp_dir)
