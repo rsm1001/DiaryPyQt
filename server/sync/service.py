@@ -1,5 +1,5 @@
 """日记同步业务服务。"""
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from server.schemas import DiaryCreate, DiaryUpdate
 from server.service import DiaryService, ServiceError, normalize_tags
@@ -80,6 +80,11 @@ class SyncService:
             results.append({"entity_id": entity_id, "status": "accepted", "data": result})
         return {"items": results}
 
+    def list_playback(
+        self, device_id: Optional[str], diary_id: Optional[str] = None,
+        voice_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.repository.list_playback(device_id, diary_id, voice_id)
     def save_playback(self, record: Dict[str, Any]) -> Dict[str, Any]:
         if record["round_number"] not in (1, 2):
             raise ServiceError("INVALID_PLAYBACK_ROUND", "播放轮次必须是 1 或 2", 400)

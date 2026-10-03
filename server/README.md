@@ -25,6 +25,7 @@ GET /health
 
 ```text
 /api/v1/diaries
+/api/v1/playback-records
 /api/v1/tags
 /api/v1/voices
 /api/v1/diaries/{id}/audio/generate

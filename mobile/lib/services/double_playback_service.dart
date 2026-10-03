@@ -66,22 +66,37 @@ class DoublePlaybackService {
   Stream<PlaybackSnapshot> get stateStream => _stateController.stream;
   PlaybackSnapshot get snapshot => _snapshot;
 
-  Future<bool> playDiary(
-      {required String diaryId,
-      required String source,
-      required AudioAsset asset}) async {
+  Future<bool> playDiary({
+    required String diaryId,
+    required String source,
+    required AudioAsset asset,
+    int initialRound = 1,
+    Duration initialPosition = Duration.zero,
+  }) async {
     await stop();
     final token = ++_runToken;
-    await _setSource(source, diaryId, asset);
-    if (token != _runToken) return false;
     final firstDuration =
         _player.duration ?? Duration(milliseconds: asset.durationMs);
+    if (initialRound == 2) {
+      await _setSource(source, diaryId, asset,
+          initialPosition: initialPosition);
+      if (token != _runToken) return false;
+      _emit(PlaybackStage.buffering, diaryId, 2, Duration.zero,
+          position: initialPosition,
+          duration: _player.duration ?? firstDuration);
+      if (!await _playUntilCompleted(token)) return false;
+      if (token == _runToken) {
+        _emit(PlaybackStage.completed, diaryId, 2, Duration.zero);
+        return true;
+      }
+      return false;
+    }
+    await _setSource(source, diaryId, asset, initialPosition: initialPosition);
+    if (token != _runToken) return false;
     _emit(PlaybackStage.buffering, diaryId, 1, Duration.zero,
-        position: Duration.zero, duration: firstDuration);
+        position: initialPosition, duration: firstDuration);
     if (!await _playUntilCompleted(token)) return false;
-    // Keep the repeat gap short; it must not scale with a long diary audio duration.
-    const gap = _repeatGap;
-    await _waitGap(diaryId, gap, token);
+    await _waitGap(diaryId, _repeatGap, token);
     if (token != _runToken) return false;
     await _setSource(source, diaryId, asset);
     if (token != _runToken) return false;
@@ -150,8 +165,8 @@ class DoublePlaybackService {
     }
   }
 
-  Future<void> _setSource(
-      String source, String diaryId, AudioAsset asset) async {
+  Future<void> _setSource(String source, String diaryId, AudioAsset asset,
+      {Duration initialPosition = Duration.zero}) async {
     final item = MediaItem(
         id: asset.id,
         album: 'DiaryPyQt',
@@ -160,7 +175,9 @@ class DoublePlaybackService {
     final audioSource = source.startsWith('http')
         ? AudioSource.uri(Uri.parse(source), tag: item)
         : AudioSource.file(source, tag: item);
-    await _player.setAudioSource(audioSource).timeout(_stallTimeout);
+    await _player
+        .setAudioSource(audioSource, initialPosition: initialPosition)
+        .timeout(_stallTimeout);
   }
 
   Future<void> _waitGap(String diaryId, Duration gap, int token) async {

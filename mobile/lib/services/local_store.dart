@@ -10,6 +10,7 @@ import '../conflicts/diary_conflict.dart';
 import '../models/audio_asset.dart';
 import '../models/diary.dart';
 import '../models/diary_view_result.dart';
+import '../playback/playback_record.dart';
 import '../statistics/device_view_repository.dart';
 import '../voice/voice_cache_repository.dart';
 import 'random_selector.dart';
@@ -26,7 +27,7 @@ class LocalStore {
     final directory = await getApplicationDocumentsDirectory();
     _database = await openDatabase(
       path.join(directory.path, 'diary_mobile.db'),
-      version: 4,
+      version: 5,
       onUpgrade: upgradeSchema,
       onCreate: createSchema,
     );
@@ -38,6 +39,17 @@ class LocalStore {
     if (oldVersion < 2) await DeviceViewRepository.createSchema(db);
     if (oldVersion < 3) await VoiceCacheRepository.upgradeSchema(db);
     if (oldVersion < 4) await ConflictRepository.createSchema(db);
+    if (oldVersion < 5) await _createPlaybackSchema(db);
+  }
+
+  static Future<void> _createPlaybackSchema(DatabaseExecutor db) async {
+    await db.execute('CREATE TABLE IF NOT EXISTS playback_records ('
+        'id TEXT PRIMARY KEY, device_id TEXT NOT NULL, diary_id TEXT NOT NULL, '
+        'voice_id TEXT NOT NULL, round_number INTEGER NOT NULL, '
+        'position_ms INTEGER NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL, '
+        'UNIQUE(device_id, diary_id, voice_id))');
+    await db.execute('CREATE INDEX IF NOT EXISTS playback_records_diary '
+        'ON playback_records (diary_id, voice_id)');
   }
 
   static Future<void> createSchema(Database db, int version) async {
@@ -50,6 +62,58 @@ class LocalStore {
         'CREATE TABLE outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id TEXT NOT NULL, action TEXT NOT NULL, base_version INTEGER, json TEXT NOT NULL)');
     await DeviceViewRepository.createSchema(db);
     await ConflictRepository.createSchema(db);
+    await _createPlaybackSchema(db);
+  }
+
+  Future<String> getDeviceId() async {
+    final rows = await (await database).query('sync_state',
+        columns: ['value'],
+        where: 'key = ?',
+        whereArgs: ['device_id'],
+        limit: 1);
+    if (rows.isNotEmpty) return rows.single['value'] as String;
+    final value = 'device-${DateTime.now().microsecondsSinceEpoch}';
+    await (await database).insert(
+        'sync_state', {'key': 'device_id', 'value': value},
+        conflictAlgorithm: ConflictAlgorithm.ignore);
+    return value;
+  }
+
+  Future<PlaybackRecord?> getPlayback(String diaryId, String voiceId) async {
+    final rows = await (await database).query('playback_records',
+        where: 'diary_id = ? AND voice_id = ?',
+        whereArgs: [diaryId, voiceId],
+        limit: 1);
+    return rows.isEmpty ? null : PlaybackRecord.fromJson(rows.single);
+  }
+
+  Future<List<PlaybackRecord>> getPlaybacks() async {
+    final rows = await (await database)
+        .query('playback_records', orderBy: 'updated_at DESC');
+    return rows.map(PlaybackRecord.fromJson).toList(growable: false);
+  }
+
+  Future<void> savePlayback(PlaybackRecord record, {bool queue = true}) async {
+    final db = await database;
+    await db.transaction((transaction) async {
+      await transaction.insert('playback_records', record.toJson(),
+          conflictAlgorithm: ConflictAlgorithm.replace);
+      if (queue) {
+        final entityId = 'playback:${record.diaryId}:${record.voiceId}';
+        await transaction.delete('outbox',
+            where: 'entity_id = ? AND action = ?',
+            whereArgs: [entityId, 'playback']);
+        await transaction.insert(
+            'outbox',
+            {
+              'entity_id': entityId,
+              'action': 'playback',
+              'base_version': null,
+              'json': _encode(record.toJson()),
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
   }
 
   Future<List<DiaryConflict>> getConflicts() async =>

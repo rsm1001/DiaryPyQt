@@ -27,11 +27,13 @@ import '../widgets/diary_list_body.dart';
 import '../widgets/random_playback_panel.dart';
 import '../widgets/sync_status_banner.dart';
 import '../voice/voice_selection_page.dart';
+
 class DiaryListPage extends StatefulWidget {
   const DiaryListPage({super.key});
   @override
   State<DiaryListPage> createState() => _DiaryListPageState();
 }
+
 class _DiaryListPageState extends State<DiaryListPage>
     with WidgetsBindingObserver {
   DiaryApi _api = DiaryApi();
@@ -68,6 +70,9 @@ class _DiaryListPageState extends State<DiaryListPage>
   String? _playingDiaryId;
   String? _errorMessage;
   String _voiceId = '', _audioStatus = '';
+  String _playingVoiceId = '';
+  DateTime? _lastPlaybackPersistedAt;
+  String _lastPlaybackPersistKey = '';
   String _searchQuery = '';
   DiarySearchOptions _searchOptions = const DiarySearchOptions();
   String? _selectedTag;
@@ -89,8 +94,10 @@ class _DiaryListPageState extends State<DiaryListPage>
     _diaries = _initialize();
     _subscription = _playback.stateStream.listen((snapshot) {
       if (mounted) setState(() => _snapshot = snapshot);
+      unawaited(_persistPlayback(snapshot));
     });
   }
+
   Future<List<Diary>> _initialize() async {
     final storedUrl = await _store.getServerUrl();
     if (AppConfig.shouldMigrateLegacyUrl(storedUrl)) {
@@ -116,6 +123,7 @@ class _DiaryListPageState extends State<DiaryListPage>
     }
     return diaries;
   }
+
   Future<void> _configureServer() async {
     final input = await showServerConnectionDialog(context, _serverUrl);
     if (input == null || !mounted) return;
@@ -186,6 +194,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       if (!identical(candidate, _api)) candidate.dispose();
     }
   }
+
   Future<List<Diary>> _loadDiaries({bool rethrowOnFailure = false}) async {
     final local = await _sync.loadLocal();
     try {
@@ -225,16 +234,100 @@ class _DiaryListPageState extends State<DiaryListPage>
       return local;
     }
   }
+
   Future<void> _updatePendingCount() async {
     final pending = await _sync.pendingCount();
     if (mounted && pending != _pendingCount) {
       setState(() => _pendingCount = pending);
     }
   }
+
   Future<void> _refreshLocalList() async {
     final local = await _store.getDiaries();
     if (mounted) setState(() => _diaries = Future.value(local));
   }
+
+  String _playbackStatus(PlaybackStage stage) => switch (stage) {
+        PlaybackStage.playingFirst || PlaybackStage.playingSecond => 'playing',
+        PlaybackStage.paused => 'paused',
+        PlaybackStage.waiting => 'waiting',
+        PlaybackStage.completed => 'completed',
+        PlaybackStage.buffering => 'playing',
+        PlaybackStage.idle => 'skipped',
+      };
+
+  Future<void> _persistPlayback(PlaybackSnapshot snapshot) async {
+    final diaryId = snapshot.diaryId;
+    if (diaryId == null ||
+        _playingVoiceId.isEmpty ||
+        snapshot.stage == PlaybackStage.idle) {
+      return;
+    }
+    final positionMs = snapshot.position.inMilliseconds;
+    final status = _playbackStatus(snapshot.stage);
+    final key =
+        '$diaryId|$_playingVoiceId|${snapshot.roundNumber}|$status|${positionMs ~/ 1000}';
+    final now = DateTime.now();
+    if (key == _lastPlaybackPersistKey &&
+        (now.difference(_lastPlaybackPersistedAt ?? DateTime(1970)))
+                .inMilliseconds <
+            800 &&
+        status != 'paused' &&
+        status != 'completed') {
+      return;
+    }
+    _lastPlaybackPersistKey = key;
+    _lastPlaybackPersistedAt = now;
+    try {
+      await _sync.savePlaybackRecord(
+        diaryId: diaryId,
+        voiceId: _playingVoiceId,
+        roundNumber: snapshot.roundNumber,
+        positionMs: positionMs,
+        status: status,
+      );
+    } catch (error, stack) {
+      developer.log(
+        '播放记录本地保存失败 request_id=${DateTime.now().microsecondsSinceEpoch}',
+        name: 'diary.playback',
+        error: error,
+        stackTrace: stack,
+      );
+    }
+  }
+
+  Future<(int, Duration)?> _askPlaybackResume(
+      String diaryId, String voiceId, int durationMs) async {
+    var record = await _sync.localPlayback(diaryId, voiceId);
+    record ??= await _sync.remotePlayback(diaryId, voiceId);
+    if (record == null ||
+        record.status == 'completed' ||
+        record.positionMs <= 0 ||
+        record.positionMs >= durationMs) {
+      return null;
+    }
+    if (!mounted) return null;
+    final resume = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('恢复上次播放？'),
+        content: Text('上次在第 ${record!.roundNumber} 遍播放到 '
+            '${record.positionMs ~/ 1000} 秒，状态为“${record.status}”。'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('从头播放')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('继续播放')),
+        ],
+      ),
+    );
+    return resume == true
+        ? (record.roundNumber, Duration(milliseconds: record.positionMs))
+        : null;
+  }
+
   Future<void> _recordPlaybackView(Diary diary) async {
     try {
       await _sync.recordView(diary);
@@ -254,31 +347,46 @@ class _DiaryListPageState extends State<DiaryListPage>
       await _updatePendingCount();
     }
   }
-  String _audioKey(Diary diary) => [diary.id, diary.contentHash, _voiceId].join('|');
+
+  String _audioKey(Diary diary) =>
+      [diary.id, diary.contentHash, _voiceId].join('|');
   Future<AudioAsset> _ensureAudio(Diary diary, {bool foreground = false}) {
     final key = _audioKey(diary);
     final existing = _audioPrefetch[key];
     if (existing != null) return existing;
-    final future =
-        _sync.ensureAudio(diary, voiceId: _voiceId, onStatus: foreground
-            ? (status) { if (mounted && _playingDiaryId == diary.id && _audioKey(diary) == key) setState(() => _audioStatus = status); }
-            : null).catchError((Object error, StackTrace stack) {
+    final future = _sync
+        .ensureAudio(diary,
+            voiceId: _voiceId,
+            onStatus: foreground
+                ? (status) {
+                    if (mounted &&
+                        _playingDiaryId == diary.id &&
+                        _audioKey(diary) == key) {
+                      setState(() => _audioStatus = status);
+                    }
+                  }
+                : null)
+        .catchError((Object error, StackTrace stack) {
       _audioPrefetch.remove(key);
       Error.throwWithStackTrace(error, stack);
     });
     _audioPrefetch[key] = future;
     return future;
   }
+
   Future<void> _prefetchRandomPlan() async {
     if (!_randomMode) return;
     for (final diary in _randomPlanner.peek(limit: 3)) {
-      if (_prefetchActive >= 2 || _audioPrefetch.containsKey(_audioKey(diary)) || _prefetchFailed.contains(_audioKey(diary))) {
+      if (_prefetchActive >= 2 ||
+          _audioPrefetch.containsKey(_audioKey(diary)) ||
+          _prefetchFailed.contains(_audioKey(diary))) {
         continue;
       }
       _prefetchActive++;
       unawaited(_prefetchAudio(diary));
     }
   }
+
   Future<void> _prefetchAudio(Diary diary) async {
     try {
       await _ensureAudio(diary);
@@ -295,6 +403,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       if (mounted && _randomMode) unawaited(_prefetchRandomPlan());
     }
   }
+
   void _onSyncError(Object error, StackTrace stack) {
     developer.log(
       '本地同步状态失败 request_id=${DateTime.now().microsecondsSinceEpoch}',
@@ -306,6 +415,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       setState(() => _errorMessage = '本地同步状态无法更新，请稍后重试。');
     }
   }
+
   Future<void> _performRefresh() async {
     if (!mounted) return;
     setState(() => _syncing = true);
@@ -317,6 +427,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       if (mounted) setState(() => _syncing = false);
     }
   }
+
   void _toggleSelection(String diaryId) {
     if (_batchBusy) return;
     setState(() {
@@ -327,6 +438,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       if (_selectedDiaryIds.isEmpty) _selectionMode = false;
     });
   }
+
   void _cancelSelection() {
     if (_batchBusy) return;
     setState(() {
@@ -334,6 +446,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       _selectedDiaryIds.clear();
     });
   }
+
   Future<void> _batchDeleteSelected() async {
     if (_batchBusy || _selectedDiaryIds.isEmpty) return;
     final confirmed = await showDialog<bool>(
@@ -387,6 +500,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       if (mounted) setState(() => _batchBusy = false);
     }
   }
+
   Future<void> _batchTagSelected() async {
     if (_batchBusy || _selectedDiaryIds.isEmpty) return;
     final all = await _store.getDiaries();
@@ -425,6 +539,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       if (mounted) setState(() => _batchBusy = false);
     }
   }
+
   Future<void> _toggleDiary(Diary diary) async {
     if (_randomMode) {
       _randomToken++;
@@ -443,6 +558,7 @@ class _DiaryListPageState extends State<DiaryListPage>
     }
     await _playDiary(diary);
   }
+
   Future<bool> _playDiary(
     Diary diary, {
     bool fromRandomQueue = false,
@@ -458,6 +574,9 @@ class _DiaryListPageState extends State<DiaryListPage>
     var completed = false;
     try {
       final asset = await _ensureAudio(diary, foreground: true);
+      _playingVoiceId = asset.voiceId;
+      final resume =
+          await _askPlaybackResume(diary.id, asset.voiceId, asset.durationMs);
       if (!mounted ||
           request != _playRequest ||
           (fromRandomQueue && !_randomMode)) {
@@ -471,7 +590,9 @@ class _DiaryListPageState extends State<DiaryListPage>
       completed = await _playback.playDiary(
           diaryId: diary.id,
           source: asset.localPath ?? asset.downloadUrl,
-          asset: asset);
+          asset: asset,
+          initialRound: resume == null ? 1 : resume.$1,
+          initialPosition: resume == null ? Duration.zero : resume.$2);
     } catch (error, stack) {
       developer.log(
           'audio_playback_failed request_id=${DateTime.now().microsecondsSinceEpoch} diary_id=${diary.id}',
@@ -494,14 +615,21 @@ class _DiaryListPageState extends State<DiaryListPage>
     }
     return completed;
   }
+
   Future<void> _openAdvancedSearch() async {
-    final tags = (await _store.getDiaries()).expand((diary) => diary.tags).toSet().toList()..sort();
+    final tags = (await _store.getDiaries())
+        .expand((diary) => diary.tags)
+        .toSet()
+        .toList()
+      ..sort();
     if (!mounted) return;
-    final selected = await showAdvancedSearchDialog(context, _searchOptions, availableTags: tags);
+    final selected = await showAdvancedSearchDialog(context, _searchOptions,
+        availableTags: tags);
     if (selected != null && mounted) {
       setState(() => _searchOptions = selected);
     }
   }
+
   Future<void> _openTransfer() async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => DiaryTransferPage(
@@ -515,27 +643,39 @@ class _DiaryListPageState extends State<DiaryListPage>
       ),
     ));
   }
-  Future<void> _openStatistics() async { final diaries = await _store.getDiaries(); if (!mounted) return; await Navigator.of(context).push(MaterialPageRoute(builder: (_) => DiaryStatisticsPage(diaries: diaries, api: _api, store: _store))); }
+
+  Future<void> _openStatistics() async {
+    final diaries = await _store.getDiaries();
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) =>
+            DiaryStatisticsPage(diaries: diaries, api: _api, store: _store)));
+  }
+
   Future<void> _stopRandomPlayback() async {
     _randomToken++;
     _playRequest++;
     _randomPlanner.clear();
-    _randomFailures.clear(); _prefetchFailed.clear();
+    _randomFailures.clear();
+    _prefetchFailed.clear();
     if (mounted) {
       setState(() {
         _randomMode = false;
         _randomCurrent = null;
-        _playingDiaryId = null; _audioStatus = '';
+        _playingDiaryId = null;
+        _audioStatus = '';
       });
     }
     await _playback.stop();
   }
+
   Future<void> _playRandomCached() async {
     final token = ++_randomToken;
     _playRequest++;
     final diaries = await _store.getDiaries();
     if (!mounted || token != _randomToken) return;
-    final candidates = filterDiaries(diaries, _searchQuery, _selectedTag, options: _searchOptions);
+    final candidates = filterDiaries(diaries, _searchQuery, _selectedTag,
+        options: _searchOptions);
     if (candidates.isEmpty) {
       if (mounted) {
         setState(() => _errorMessage =
@@ -548,7 +688,8 @@ class _DiaryListPageState extends State<DiaryListPage>
     final usage = await _store.getRandomUsage();
     if (!mounted || token != _randomToken) return;
     _randomPlanner.reset(candidates, usage: usage);
-    _randomFailures.clear(); _prefetchFailed.clear();
+    _randomFailures.clear();
+    _prefetchFailed.clear();
     if (mounted) {
       setState(() {
         _randomMode = true;
@@ -558,6 +699,7 @@ class _DiaryListPageState extends State<DiaryListPage>
     }
     await _playNextRandom();
   }
+
   Future<void> _playNextRandom() async {
     final token = _randomToken;
     while (mounted && _randomMode && token == _randomToken) {
@@ -590,6 +732,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       unawaited(_prefetchRandomPlan());
     }
   }
+
   Future<void> _openEditor([Diary? diary]) async {
     if (diary != null) {
       try {
@@ -618,12 +761,14 @@ class _DiaryListPageState extends State<DiaryListPage>
     }
     if (mounted) await _syncTrigger.request();
   }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _initialized) {
       unawaited(_syncTrigger.request());
     }
   }
+
   @override
   void dispose() {
     _randomPlanner.clear();
@@ -638,6 +783,7 @@ class _DiaryListPageState extends State<DiaryListPage>
     unawaited(_playback.dispose());
     super.dispose();
   }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
@@ -695,24 +841,48 @@ class _DiaryListPageState extends State<DiaryListPage>
                         ));
                       } else if (action == 'trash') {
                         Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => TrashPage(api: _api, sync: _sync, onChanged: _refreshLocalList),
+                          builder: (_) => TrashPage(
+                              api: _api,
+                              sync: _sync,
+                              onChanged: _refreshLocalList),
                         ));
                       } else if (action == 'voices') {
-                        final selected = await Navigator.of(context).push<String>(
-                          MaterialPageRoute(builder: (_) => VoiceSelectionPage(
-                            api: _api, store: _store, serverUrl: _serverUrl,
-                            currentVoiceId: _voiceId)));
-                        if (selected != null && mounted && selected != _voiceId) {
+                        final selected = await Navigator.of(context)
+                            .push<String>(MaterialPageRoute(
+                                builder: (_) => VoiceSelectionPage(
+                                    api: _api,
+                                    store: _store,
+                                    serverUrl: _serverUrl,
+                                    currentVoiceId: _voiceId)));
+                        if (selected != null &&
+                            mounted &&
+                            selected != _voiceId) {
                           await _stopRandomPlayback();
-                          if (mounted) setState(() { _voiceId = selected; _audioPrefetch.clear(); _prefetchFailed.clear(); });
+                          if (mounted) {
+                            setState(() {
+                              _voiceId = selected;
+                              _audioPrefetch.clear();
+                              _prefetchFailed.clear();
+                            });
+                          }
                         }
                       } else if (action == 'conflicts') {
-                        Navigator.of(context).push(MaterialPageRoute(builder: (_) =>
-                          ConflictReviewPage(sync: _sync, onResolved: () async {
-                            await _refreshLocalList(); await _updatePendingCount(); if (mounted) unawaited(_syncTrigger.request());
-                          })));
+                        Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => ConflictReviewPage(
+                                sync: _sync,
+                                onResolved: () async {
+                                  await _refreshLocalList();
+                                  await _updatePendingCount();
+                                  if (mounted) {
+                                    unawaited(_syncTrigger.request());
+                                  }
+                                })));
                       } else if (action == 'random_delete') {
-                        await RandomDeletionPage.open(context, store: _store, sync: _sync, onChanged: () async { await _refreshLocalList(); await _updatePendingCount(); });
+                        await RandomDeletionPage.open(context,
+                            store: _store, sync: _sync, onChanged: () async {
+                          await _refreshLocalList();
+                          await _updatePendingCount();
+                        });
                       } else if (action == 'statistics') {
                         _openStatistics();
                       }
@@ -731,7 +901,8 @@ class _DiaryListPageState extends State<DiaryListPage>
                           value: 'trash', child: Text('\u56de\u6536\u7ad9')),
                       PopupMenuItem(value: 'voices', child: Text('语音包选择')),
                       PopupMenuItem(value: 'conflicts', child: Text('同步冲突审核')),
-                      PopupMenuItem(value: 'random_delete', child: Text('随机删除')),
+                      PopupMenuItem(
+                          value: 'random_delete', child: Text('随机删除')),
                       PopupMenuItem(
                           value: 'statistics', child: Text('\u7edf\u8ba1')),
                       PopupMenuItem(
@@ -762,7 +933,9 @@ class _DiaryListPageState extends State<DiaryListPage>
               pendingCount: _pendingCount,
             ),
           if (_audioStatus.isNotEmpty)
-            Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Text(_audioStatus)),
+            Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(_audioStatus)),
           RandomPlaybackPanel(
             active: _randomMode,
             current: _randomCurrent,
@@ -783,7 +956,11 @@ class _DiaryListPageState extends State<DiaryListPage>
               snapshot: _snapshot,
               onSearch: (text) => setState(() => _searchQuery = text),
               onTag: (tag) => setState(() => _selectedTag = tag),
-              onClearFilters: () => setState(() { _searchQuery = ''; _selectedTag = null; _searchOptions = const DiarySearchOptions(); }),
+              onClearFilters: () => setState(() {
+                _searchQuery = '';
+                _selectedTag = null;
+                _searchOptions = const DiarySearchOptions();
+              }),
               onRefresh: _syncTrigger.request,
               selectionMode: _selectionMode,
               selectedIds: _selectedDiaryIds,

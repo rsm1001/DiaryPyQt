@@ -12,6 +12,7 @@ import '../models/diary.dart';
 import '../models/diary_view_result.dart';
 import '../models/diary_tag.dart';
 import '../models/server_statistics.dart';
+import '../playback/playback_record.dart';
 import '../voice/voice_profile.dart';
 
 class AudioDownloadChunk {
@@ -380,6 +381,43 @@ class DiaryApi {
     } finally {
       await sink.close();
     }
+  }
+
+  Future<PlaybackRecord> savePlayback(PlaybackRecord record) async {
+    return _networkSafe(() async {
+      final requestId = _newRequestId();
+      final response = await _client
+          .post(Uri.parse('$_baseUrl/api/v1/playback-records'),
+              headers: _mutationHeaders(requestId),
+              body: jsonEncode(record.toJson()))
+          .timeout(_timeout);
+      _logMutation('save_playback', requestId, response.statusCode);
+      _ensureSuccess(response);
+      return PlaybackRecord.fromJson(
+          jsonDecode(response.body) as Map<String, dynamic>);
+    });
+  }
+
+  Future<List<PlaybackRecord>> fetchPlaybackRecords({
+    String? deviceId,
+    String? diaryId,
+    String? voiceId,
+  }) async {
+    final query = <String, String>{};
+    if (deviceId != null) query['device_id'] = deviceId;
+    if (diaryId != null) query['diary_id'] = diaryId;
+    if (voiceId != null) query['voice_id'] = voiceId;
+    final response = await _client
+        .get(
+            Uri.parse('$_baseUrl/api/v1/playback-records')
+                .replace(queryParameters: query),
+            headers: _authHeaders)
+        .timeout(_timeout);
+    _ensureSuccess(response);
+    final items = jsonDecode(response.body) as List<dynamic>;
+    return items
+        .map((item) => PlaybackRecord.fromJson(item as Map<String, dynamic>))
+        .toList(growable: false);
   }
 
   Future<Map<String, dynamic>> pull(int cursor) async {

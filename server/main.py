@@ -246,6 +246,18 @@ def save_playback(
     return PlaybackRecordResponse(**sync_service.save_playback(payload.model_dump()))
 
 
+@router.get("/playback-records", response_model=List[PlaybackRecordResponse])
+def list_playback_records(
+    device_id: Optional[str] = Query(default=None, min_length=1),
+    diary_id: Optional[str] = Query(default=None),
+    voice_id: Optional[str] = Query(default=None),
+    sync_service: SyncService = Depends(get_sync_service),
+) -> List[PlaybackRecordResponse]:
+    """查询指定设备的播放恢复记录。"""
+    logger.info("playback_record_list_requested", extra={"device_id": device_id})
+    return [PlaybackRecordResponse(**item) for item in sync_service.list_playback(
+        device_id, diary_id, voice_id)]
+
 @router.get("/tags", response_model=TagListResponse)
 def list_tags(service: DiaryService = Depends(get_service)) -> TagListResponse:
     """查询标签列表。"""

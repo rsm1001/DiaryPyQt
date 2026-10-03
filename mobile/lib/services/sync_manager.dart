@@ -8,6 +8,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 
 import '../conflicts/diary_conflict.dart';
 import '../models/audio_asset.dart';
+import '../playback/playback_record.dart';
 import '../models/diary.dart';
 import '../tags/batch_tag_policy.dart';
 import '../tags/batch_tag_repository.dart';
@@ -302,6 +303,47 @@ class SyncManager {
     }
   }
 
+  Future<PlaybackRecord> savePlaybackRecord({
+    required String diaryId,
+    required String voiceId,
+    required int roundNumber,
+    required int positionMs,
+    required String status,
+    String? deviceId,
+  }) async {
+    final record = PlaybackRecord(
+      id: 'local-playback-${DateTime.now().microsecondsSinceEpoch}',
+      deviceId: deviceId ?? await store.getDeviceId(),
+      diaryId: diaryId,
+      voiceId: voiceId,
+      roundNumber: roundNumber.clamp(1, 2).toInt(),
+      positionMs: positionMs < 0 ? 0 : positionMs,
+      status: status,
+      updatedAt: DateTime.now().toUtc().toIso8601String(),
+    );
+    await store.savePlayback(record);
+    return record;
+  }
+
+  Future<PlaybackRecord?> localPlayback(String diaryId, String voiceId) =>
+      store.getPlayback(diaryId, voiceId);
+
+  Future<PlaybackRecord?> remotePlayback(String diaryId, String voiceId) async {
+    final deviceId = await store.getDeviceId();
+    final localDevice = await api.fetchPlaybackRecords(
+        deviceId: deviceId, diaryId: diaryId, voiceId: voiceId);
+    if (localDevice.isNotEmpty) return localDevice.first;
+    final others =
+        await api.fetchPlaybackRecords(diaryId: diaryId, voiceId: voiceId);
+    return others.isEmpty ? null : others.first;
+  }
+
+  Future<void> _flushPlayback(Map<String, dynamic> payload, int id) async {
+    final saved = await api.savePlayback(PlaybackRecord.fromJson(payload));
+    await store.savePlayback(saved, queue: false);
+    await store.acknowledgeMutation(id);
+  }
+
   Future<void> _flushOutbox() async {
     while (true) {
       final pending = await store.getOutbox();
@@ -321,6 +363,10 @@ class SyncManager {
       final action = item['action'] as String;
       final payload =
           Map<String, dynamic>.from(jsonDecode(item['json'] as String) as Map);
+      if (action == 'playback') {
+        await _flushPlayback(payload, id);
+        continue;
+      }
       if (action == 'view') {
         final current = await store.getDiary(entityId);
         if (current == null) {

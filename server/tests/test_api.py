@@ -140,6 +140,12 @@ def test_sync_and_playback_records():
             assert playback.status_code == 200
             assert playback.json()["position_ms"] == 1200
 
+            listed = client.get("/api/v1/playback-records", params={
+                "diary_id": diary_id, "voice_id": "default"
+            })
+            assert listed.status_code == 200
+            assert listed.json()[0]["device_id"] == "test-device"
+
             pushed = client.post(
                 "/api/v1/sync/push",
                 json={
@@ -152,6 +158,31 @@ def test_sync_and_playback_records():
             )
             assert pushed.status_code == 200
             assert pushed.json()["items"][0]["data"]["version"] == 2
+
+def test_playback_records_are_idempotent_and_queryable_by_device_diary_voice():
+    with TemporaryDirectory() as temp_dir:
+        with TestClient(create_app(settings=build_settings(temp_dir))) as client:
+            diary = client.post('/api/v1/diaries', json={
+                'date': '2026-10-03', 'content': '播放记录', 'tags': [],
+            }).json()
+            payload = {
+                'id': 'playback-event-1', 'device_id': 'device-a',
+                'diary_id': diary['id'], 'voice_id': 'voice-a',
+                'round_number': 1, 'position_ms': 1200,
+                'status': 'paused', 'updated_at': '2026-10-03T10:00:00Z',
+            }
+            first = client.post('/api/v1/playback-records', json=payload)
+            payload['position_ms'] = 1800
+            second = client.post('/api/v1/playback-records', json=payload)
+            assert first.status_code == 200
+            assert second.status_code == 200
+            records = client.get('/api/v1/playback-records', params={
+                'device_id': 'device-a', 'diary_id': diary['id'], 'voice_id': 'voice-a',
+            })
+            assert records.status_code == 200
+            assert len(records.json()) == 1
+            assert records.json()[0]['position_ms'] == 1800
+            assert client.get('/api/v1/statistics').json()['total_views'] == 0
 
 def test_sync_retries_are_idempotent_for_create_and_delete():
     """离线队列重试同一操作时不重复创建，也不因重复删除失败。"""

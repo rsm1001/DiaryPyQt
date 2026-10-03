@@ -117,6 +117,39 @@ class SyncRepository:
             ).fetchone()
             return dict(row)
 
+    def list_playback(
+        self, device_id: Optional[str], diary_id: Optional[str] = None,
+        voice_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        with self._connection() as connection:
+            if device_id is not None and diary_id is not None and voice_id is not None:
+                rows = connection.execute(
+                    "SELECT * FROM playback_records WHERE device_id = ? "
+                    "AND diary_id = ? AND voice_id = ? ORDER BY updated_at DESC",
+                    (device_id, diary_id, voice_id),
+                ).fetchall()
+            elif device_id is not None and diary_id is not None:
+                rows = connection.execute(
+                    "SELECT * FROM playback_records WHERE device_id = ? "
+                    "AND diary_id = ? ORDER BY updated_at DESC",
+                    (device_id, diary_id),
+                ).fetchall()
+            elif device_id is not None:
+                rows = connection.execute(
+                    "SELECT * FROM playback_records WHERE device_id = ? "
+                    "ORDER BY updated_at DESC", (device_id,)
+                ).fetchall()
+            elif diary_id is not None and voice_id is not None:
+                rows = connection.execute(
+                    "SELECT * FROM playback_records WHERE diary_id = ? "
+                    "AND voice_id = ? ORDER BY updated_at DESC",
+                    (diary_id, voice_id),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    "SELECT * FROM playback_records ORDER BY updated_at DESC"
+                ).fetchall()
+            return [dict(row) for row in rows]
     def get_playback(self, device_id: str, diary_id: str, voice_id: str) -> Optional[Dict[str, Any]]:
         with self._connection() as connection:
             row = connection.execute(
