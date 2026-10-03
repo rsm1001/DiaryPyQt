@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/app_config.dart';
+import '../deletion/random_deletion_page.dart';
 import '../conflicts/conflict_review_page.dart';
 import '../models/audio_asset.dart';
 import '../models/diary.dart';
@@ -514,11 +515,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       ),
     ));
   }
-  Future<void> _openStatistics() async {
-    final diaries = await _store.getDiaries();
-    if (!mounted) return;
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => DiaryStatisticsPage(diaries: diaries, api: _api, store: _store)));
-  }
+  Future<void> _openStatistics() async { final diaries = await _store.getDiaries(); if (!mounted) return; await Navigator.of(context).push(MaterialPageRoute(builder: (_) => DiaryStatisticsPage(diaries: diaries, api: _api, store: _store))); }
   Future<void> _stopRandomPlayback() async {
     _randomToken++;
     _playRequest++;
@@ -714,6 +711,8 @@ class _DiaryListPageState extends State<DiaryListPage>
                           ConflictReviewPage(sync: _sync, onResolved: () async {
                             await _refreshLocalList(); await _updatePendingCount(); if (mounted) unawaited(_syncTrigger.request());
                           })));
+                      } else if (action == 'random_delete') {
+                        await RandomDeletionPage.open(context, store: _store, sync: _sync, onChanged: () async { await _refreshLocalList(); await _updatePendingCount(); });
                       } else if (action == 'statistics') {
                         _openStatistics();
                       }
@@ -732,6 +731,7 @@ class _DiaryListPageState extends State<DiaryListPage>
                           value: 'trash', child: Text('\u56de\u6536\u7ad9')),
                       PopupMenuItem(value: 'voices', child: Text('语音包选择')),
                       PopupMenuItem(value: 'conflicts', child: Text('同步冲突审核')),
+                      PopupMenuItem(value: 'random_delete', child: Text('随机删除')),
                       PopupMenuItem(
                           value: 'statistics', child: Text('\u7edf\u8ba1')),
                       PopupMenuItem(
