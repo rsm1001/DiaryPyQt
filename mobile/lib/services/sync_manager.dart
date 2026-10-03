@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
+import '../conflicts/diary_conflict.dart';
 import '../models/audio_asset.dart';
 import '../models/diary.dart';
 import '../tags/batch_tag_policy.dart';
@@ -32,6 +33,63 @@ class SyncManager {
 
   bool _isNetworkFailure(Object error) =>
       error is DiaryApiException && error.network;
+
+  bool _isConflict(Object error) =>
+      error is DiaryApiException && error.conflict;
+
+  Future<Diary> _fetchConflictDiary(String diaryId) async {
+    try {
+      return await api.fetchDiary(diaryId);
+    } on DiaryApiException catch (error) {
+      if (error.statusCode != 404) rethrow;
+      final trash = await api.fetchTrash();
+      return trash.firstWhere((diary) => diary.id == diaryId,
+          orElse: () => throw const DiaryApiException('服务器日记不存在'));
+    }
+  }
+
+  Future<void> _captureConflict(String diaryId, String action) async {
+    Diary? remote;
+    try {
+      remote = await _fetchConflictDiary(diaryId);
+    } catch (error, stack) {
+      developer.log(
+          jsonEncode({
+            'request_id': DateTime.now().microsecondsSinceEpoch.toString(),
+            'operation': 'fetch_conflict_snapshot_failed',
+            'diary_id': diaryId,
+          }),
+          name: 'diary.sync',
+          error: error,
+          stackTrace: stack);
+    }
+    await store.recordConflict(diaryId, action, remote);
+  }
+
+  Future<List<DiaryConflict>> getConflicts() => store.getConflicts();
+  Future<void> refreshConflict(DiaryConflict conflict) async {
+    final remote = await _fetchConflictDiary(conflict.diaryId);
+    await store.recordConflict(conflict.diaryId, conflict.action, remote);
+  }
+
+  Future<void> resolveConflict(DiaryConflict conflict,
+      {required bool keepLocal}) async {
+    final remote = await _fetchConflictDiary(conflict.diaryId);
+    try {
+      await store.resolveConflict(conflict, remote, keepLocal: keepLocal);
+    } on StateError {
+      await store.recordConflict(conflict.diaryId, conflict.action, remote);
+      rethrow;
+    }
+    developer.log(
+        jsonEncode({
+          'request_id': DateTime.now().microsecondsSinceEpoch.toString(),
+          'operation': 'resolve_diary_conflict',
+          'diary_id': conflict.diaryId,
+          'keep_local': keepLocal,
+        }),
+        name: 'diary.sync');
+  }
 
   Future<int> importDiaries(List<DiaryImportEntry> entries) async {
     final now = DateTime.now().toUtc().toIso8601String();
@@ -109,7 +167,7 @@ class SyncManager {
       await store.saveRemoteDiary(updated);
       return updated;
     } catch (error) {
-      if (!_isNetworkFailure(error)) rethrow;
+      if (!_isNetworkFailure(error) && !_isConflict(error)) rethrow;
       final cached = await store.getDiary(diary.id);
       final local = Diary(
         id: diary.id,
@@ -129,6 +187,7 @@ class SyncManager {
         baseVersion: diary.version,
         payload: {'content': content, 'tags': tags},
       );
+      if (_isConflict(error)) await _captureConflict(diary.id, 'update');
       return local;
     }
   }
@@ -159,6 +218,35 @@ class SyncManager {
     }
   }
 
+  Future<void> restoreDiary(Diary diary) async {
+    final pending = await store.getOutbox();
+    if (pending.any((row) =>
+        row['entity_id'] == diary.id &&
+        row['action'] != 'view' &&
+        row['action'] != 'restore')) {
+      throw StateError('日记存在其他待同步操作，不能恢复');
+    }
+    try {
+      final restored = await api.restoreDiary(diary);
+      await store.saveRemoteDiary(restored);
+      for (final row in pending.where((row) =>
+          row['entity_id'] == diary.id && row['action'] == 'restore')) {
+        await store.acknowledgeMutation(row['id'] as int);
+      }
+    } catch (error) {
+      if (!_isNetworkFailure(error) && !_isConflict(error)) rethrow;
+      final cached = await store.getDiary(diary.id);
+      await store.saveDiary(
+          cached == null ? diary : preserveLocalViews(cached, diary));
+      await store.enqueueMutation(
+          entityId: diary.id,
+          action: 'restore',
+          baseVersion: diary.version,
+          payload: const {});
+      if (_isConflict(error)) await _captureConflict(diary.id, 'restore');
+    }
+  }
+
   Future<void> deleteDiary(Diary diary) async {
     final pending = await store.getOutbox();
     if (diary.id.startsWith('local-')) {
@@ -175,16 +263,21 @@ class SyncManager {
       );
       return;
     }
+    var attemptedDelete = false;
     try {
       if (pending.any((item) =>
           item['entity_id'] == diary.id && item['action'] == 'view')) {
         await flushPending();
       }
       final current = await store.getDiary(diary.id) ?? diary;
+      attemptedDelete = true;
       await api.deleteDiary(current);
       await store.removeDiary(diary.id);
     } catch (error) {
-      if (!_isNetworkFailure(error)) rethrow;
+      if (!_isNetworkFailure(error) &&
+          !(attemptedDelete && _isConflict(error))) {
+        rethrow;
+      }
       final cached = await store.getDiary(diary.id);
       final local = Diary(
         id: diary.id,
@@ -205,6 +298,7 @@ class SyncManager {
         baseVersion: diary.version,
         payload: const {},
       );
+      if (_isConflict(error)) await _captureConflict(diary.id, 'delete');
     }
   }
 
@@ -212,7 +306,16 @@ class SyncManager {
     while (true) {
       final pending = await store.getOutbox();
       if (pending.isEmpty) return;
-      final item = pending.first;
+      var item = pending.first;
+      if (['update', 'delete', 'restore'].contains(item['action']) &&
+          await store.hasConflict(item['entity_id'] as String)) {
+        final views = pending.where((row) => row['action'] == 'view');
+        if (views.isEmpty) {
+          throw const DiaryApiException('版本冲突等待人工审核', conflict: true);
+        }
+        // 查看事件与正文冲突独立，先补交已入队的查看事件。
+        item = views.first;
+      }
       final id = item['id'] as int;
       final entityId = item['entity_id'] as String;
       final action = item['action'] as String;
@@ -249,19 +352,27 @@ class SyncManager {
         if (current == null) {
           throw const DiaryApiException('本地待同步日记不存在，已停止同步');
         }
-        if (action == 'update') {
-          final updated = await api.updateDiary(
-            current,
-            content: payload['content'] as String,
-            tags: List<String>.from(
-                payload['tags'] as List<dynamic>? ?? const []),
-          );
-          await store.saveRemoteDiary(updated);
-        } else if (action == 'delete') {
-          await api.deleteDiary(current);
-          await store.removeDiary(entityId);
-        } else {
-          throw DiaryApiException('未知的离线操作：$action');
+        try {
+          if (action == 'update') {
+            final updated = await api.updateDiary(
+              current,
+              content: payload['content'] as String,
+              tags: List<String>.from(
+                  payload['tags'] as List<dynamic>? ?? const []),
+            );
+            await store.saveRemoteDiary(updated);
+          } else if (action == 'restore') {
+            final restored = await api.restoreDiary(current);
+            await store.saveRemoteDiary(restored);
+          } else if (action == 'delete') {
+            await api.deleteDiary(current);
+            await store.removeDiary(entityId);
+          } else {
+            throw DiaryApiException('未知的离线操作：$action');
+          }
+        } on DiaryApiException catch (error) {
+          if (error.conflict) await _captureConflict(entityId, action);
+          rethrow;
         }
       }
       await store.acknowledgeMutation(id);

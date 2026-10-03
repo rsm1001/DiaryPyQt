@@ -87,6 +87,17 @@ class DiaryApi {
     }
   }
 
+  Future<Diary> fetchDiary(String diaryId) async => _networkSafe(() async {
+        final response = await _client
+            .get(
+                Uri.parse(
+                    '$_baseUrl/api/v1/diaries/${Uri.encodeComponent(diaryId)}'),
+                headers: _authHeaders)
+            .timeout(_timeout);
+        _ensureSuccess(response);
+        return Diary.fromJson(
+            jsonDecode(response.body) as Map<String, dynamic>);
+      });
   Map<String, String> _mutationHeaders(String requestId) => {
         ..._authHeaders,
         'Content-Type': 'application/json',

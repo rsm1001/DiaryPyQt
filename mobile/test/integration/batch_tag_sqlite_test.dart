@@ -27,6 +27,8 @@ class _TagApi extends DiaryApi {
   _TagApi() : super(baseUrl: '');
 
   bool conflict = true;
+  @override
+  Future<Diary> fetchDiary(String id) async => diary(id);
 
   @override
   Future<Diary> updateDiary(
@@ -144,6 +146,9 @@ void main() {
     expect((await store.getDiary('server-a'))!.tags, ['old', 'new']);
     expect((await store.getOutbox()).single['base_version'], 4);
     remote.conflict = false;
+    final review = (await uploader.getConflicts()).single;
+    expect(review.remote!.version, 4);
+    await uploader.resolveConflict(review, keepLocal: true);
     await uploader.flushPending();
     expect(await store.getOutbox(), isEmpty);
     expect((await store.getDiary('server-a'))!.version, 5);

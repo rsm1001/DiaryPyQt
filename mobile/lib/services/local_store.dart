@@ -5,6 +5,8 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../conflicts/conflict_repository.dart';
+import '../conflicts/diary_conflict.dart';
 import '../models/audio_asset.dart';
 import '../models/diary.dart';
 import '../models/diary_view_result.dart';
@@ -24,7 +26,7 @@ class LocalStore {
     final directory = await getApplicationDocumentsDirectory();
     _database = await openDatabase(
       path.join(directory.path, 'diary_mobile.db'),
-      version: 3,
+      version: 4,
       onUpgrade: upgradeSchema,
       onCreate: createSchema,
     );
@@ -35,6 +37,7 @@ class LocalStore {
       Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) await DeviceViewRepository.createSchema(db);
     if (oldVersion < 3) await VoiceCacheRepository.upgradeSchema(db);
+    if (oldVersion < 4) await ConflictRepository.createSchema(db);
   }
 
   static Future<void> createSchema(Database db, int version) async {
@@ -46,8 +49,22 @@ class LocalStore {
     await db.execute(
         'CREATE TABLE outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id TEXT NOT NULL, action TEXT NOT NULL, base_version INTEGER, json TEXT NOT NULL)');
     await DeviceViewRepository.createSchema(db);
+    await ConflictRepository.createSchema(db);
   }
 
+  Future<List<DiaryConflict>> getConflicts() async =>
+      ConflictRepository(await database).list();
+
+  Future<bool> hasConflict(String id) async =>
+      ConflictRepository(await database).contains(id);
+
+  Future<void> recordConflict(String id, String action, Diary? remote) async =>
+      ConflictRepository(await database).record(id, action, remote);
+
+  Future<void> resolveConflict(DiaryConflict conflict, Diary remote,
+          {required bool keepLocal}) async =>
+      ConflictRepository(await database)
+          .resolve(conflict, remote, keepLocal: keepLocal);
   Future<List<Diary>> getDiaries() async {
     final rows = await (await database).query('diaries', orderBy: 'json DESC');
     return rows

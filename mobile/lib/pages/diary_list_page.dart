@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/app_config.dart';
+import '../conflicts/conflict_review_page.dart';
 import '../models/audio_asset.dart';
 import '../models/diary.dart';
 import 'advanced_search_dialog.dart';
@@ -516,10 +517,7 @@ class _DiaryListPageState extends State<DiaryListPage>
   Future<void> _openStatistics() async {
     final diaries = await _store.getDiaries();
     if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-          builder: (_) => DiaryStatisticsPage(diaries: diaries, api: _api, store: _store)),
-    );
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => DiaryStatisticsPage(diaries: diaries, api: _api, store: _store)));
   }
   Future<void> _stopRandomPlayback() async {
     _randomToken++;
@@ -700,7 +698,7 @@ class _DiaryListPageState extends State<DiaryListPage>
                         ));
                       } else if (action == 'trash') {
                         Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => TrashPage(api: _api),
+                          builder: (_) => TrashPage(api: _api, sync: _sync, onChanged: _refreshLocalList),
                         ));
                       } else if (action == 'voices') {
                         final selected = await Navigator.of(context).push<String>(
@@ -711,6 +709,11 @@ class _DiaryListPageState extends State<DiaryListPage>
                           await _stopRandomPlayback();
                           if (mounted) setState(() { _voiceId = selected; _audioPrefetch.clear(); _prefetchFailed.clear(); });
                         }
+                      } else if (action == 'conflicts') {
+                        Navigator.of(context).push(MaterialPageRoute(builder: (_) =>
+                          ConflictReviewPage(sync: _sync, onResolved: () async {
+                            await _refreshLocalList(); await _updatePendingCount(); if (mounted) unawaited(_syncTrigger.request());
+                          })));
                       } else if (action == 'statistics') {
                         _openStatistics();
                       }
@@ -728,6 +731,7 @@ class _DiaryListPageState extends State<DiaryListPage>
                       PopupMenuItem(
                           value: 'trash', child: Text('\u56de\u6536\u7ad9')),
                       PopupMenuItem(value: 'voices', child: Text('语音包选择')),
+                      PopupMenuItem(value: 'conflicts', child: Text('同步冲突审核')),
                       PopupMenuItem(
                           value: 'statistics', child: Text('\u7edf\u8ba1')),
                       PopupMenuItem(
@@ -779,11 +783,7 @@ class _DiaryListPageState extends State<DiaryListPage>
               snapshot: _snapshot,
               onSearch: (text) => setState(() => _searchQuery = text),
               onTag: (tag) => setState(() => _selectedTag = tag),
-              onClearFilters: () => setState(() {
-                _searchQuery = '';
-                _selectedTag = null;
-                _searchOptions = const DiarySearchOptions();
-              }),
+              onClearFilters: () => setState(() { _searchQuery = ''; _selectedTag = null; _searchOptions = const DiarySearchOptions(); }),
               onRefresh: _syncTrigger.request,
               selectionMode: _selectionMode,
               selectedIds: _selectedDiaryIds,
