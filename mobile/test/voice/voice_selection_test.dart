@@ -4,6 +4,7 @@ import 'package:diary_mobile/services/diary_api.dart';
 import 'package:diary_mobile/services/local_store.dart';
 import 'package:diary_mobile/voice/voice_selection_page.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -79,6 +80,9 @@ void main() {
     addTearDown(api.dispose);
     String? chosen;
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: Builder(
             builder: (context) => Scaffold(
                     body: Column(children: [

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../localization/app_strings.dart';
 import '../models/diary.dart';
 import '../services/sync_manager.dart';
 
@@ -37,16 +38,17 @@ class _DiaryEditorPageState extends State<DiaryEditorPage> {
   }
 
   List<String> get _tagNames => _tags.text
-      .split(RegExp(r'[,，]'))
+      .split(RegExp(r'[,?]'))
       .map((tag) => tag.trim())
       .where((tag) => tag.isNotEmpty)
       .toSet()
       .toList(growable: false);
 
   Future<void> _save() async {
+    final strings = AppStrings.of(context);
     final content = _content.text.trim();
     if (content.isEmpty) {
-      setState(() => _error = '正文不能为空');
+      setState(() => _error = strings.contentRequired);
       return;
     }
     setState(() {
@@ -61,12 +63,15 @@ class _DiaryEditorPageState extends State<DiaryEditorPage> {
           tags: _tagNames,
         );
       } else {
-        await widget.sync
-            .updateDiary(widget.diary!, content: content, tags: _tagNames);
+        await widget.sync.updateDiary(
+          widget.diary!,
+          content: content,
+          tags: _tagNames,
+        );
       }
       if (mounted) Navigator.of(context).pop(true);
     } catch (_) {
-      if (mounted) setState(() => _error = '保存失败，请检查网络；版本冲突时先刷新再编辑');
+      if (mounted) setState(() => _error = strings.diarySaveFailed);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -75,18 +80,21 @@ class _DiaryEditorPageState extends State<DiaryEditorPage> {
   Future<void> _delete() async {
     final diary = widget.diary;
     if (diary == null) return;
+    final strings = AppStrings.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('删除日记？'),
-        content: const Text('这篇日记会被移到服务器回收状态；请确认没有未保存的更改。'),
+        title: Text(strings.deleteDiaryTitle),
+        content: Text(strings.deleteDiaryMessage),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消')),
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(strings.cancel),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('删除')),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(strings.purge),
+          ),
         ],
       ),
     );
@@ -99,71 +107,82 @@ class _DiaryEditorPageState extends State<DiaryEditorPage> {
       await widget.sync.deleteDiary(diary);
       if (mounted) Navigator.of(context).pop(true);
     } catch (_) {
-      if (mounted) setState(() => _error = '删除失败，请检查网络；版本冲突时先刷新');
+      if (mounted) setState(() => _error = strings.diaryDeleteFailed);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(widget.diary == null ? '新建日记' : '编辑日记')),
-        body: Padding(
-          padding: const EdgeInsets.all(16),
-          child: ListView(children: [
-            ListTile(
-              title: Text(
-                  '日期：${_selectedDate.toIso8601String().substring(0, 10)}'),
-              subtitle: widget.diary == null
-                  ? const Text('新日记可选择日期')
-                  : const Text('已有日记的创建日期不修改'),
-              onTap: widget.diary != null || _saving
-                  ? null
-                  : () async {
-                      final value = await showDatePicker(
-                        context: context,
-                        initialDate: _selectedDate,
-                        firstDate: DateTime(1900),
-                        lastDate: DateTime(2100),
-                      );
-                      if (value != null && mounted) {
-                        setState(() => _selectedDate = value);
-                      }
-                    },
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.diary == null
+            ? strings.newDiaryTitle
+            : strings.editDiaryTitle),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ListView(children: [
+          ListTile(
+            title: Text(strings
+                .dateText(_selectedDate.toIso8601String().substring(0, 10))),
+            subtitle: Text(widget.diary == null
+                ? strings.newDiaryDateHint
+                : strings.existingDiaryDateHint),
+            onTap: widget.diary != null || _saving
+                ? null
+                : () async {
+                    final value = await showDatePicker(
+                      context: context,
+                      initialDate: _selectedDate,
+                      firstDate: DateTime(1900),
+                      lastDate: DateTime(2100),
+                    );
+                    if (value != null && mounted) {
+                      setState(() => _selectedDate = value);
+                    }
+                  },
+          ),
+          TextField(
+            controller: _content,
+            enabled: !_saving,
+            maxLines: 12,
+            minLines: 6,
+            decoration: InputDecoration(
+              labelText: strings.content,
+              border: const OutlineInputBorder(),
             ),
-            TextField(
-              controller: _content,
-              enabled: !_saving,
-              maxLines: 12,
-              minLines: 6,
-              decoration: const InputDecoration(
-                  labelText: '正文', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _tags,
+            enabled: !_saving,
+            decoration: InputDecoration(
+              labelText: strings.tagsField,
+              hintText: strings.tagsHint,
+              border: const OutlineInputBorder(),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _tags,
-              enabled: !_saving,
-              decoration: const InputDecoration(
-                labelText: '标签',
-                hintText: '用逗号分隔多个标签',
-                border: OutlineInputBorder(),
-              ),
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(_error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Text(_error!,
-                    style:
-                        TextStyle(color: Theme.of(context).colorScheme.error)),
-              ),
-            const SizedBox(height: 12),
-            FilledButton(
-                onPressed: _saving ? null : _save, child: const Text('保存')),
-            if (widget.diary != null)
-              TextButton(
-                  onPressed: _saving ? null : _delete,
-                  child: const Text('删除日记')),
-          ]),
-        ),
-      );
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: _saving ? null : _save,
+            child: Text(strings.saveDiary),
+          ),
+          if (widget.diary != null)
+            TextButton(
+              onPressed: _saving ? null : _delete,
+              child: Text(strings.deleteDiary),
+            ),
+        ]),
+      ),
+    );
+  }
 }

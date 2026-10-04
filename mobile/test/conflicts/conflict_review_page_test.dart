@@ -5,6 +5,7 @@ import 'package:diary_mobile/services/diary_api.dart';
 import 'package:diary_mobile/services/local_store.dart';
 import 'package:diary_mobile/services/sync_manager.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Diary sample(String content, int version) => Diary(
@@ -45,10 +46,13 @@ void main() {
     sync.reviews.add(conflict);
     var changed = 0;
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: ConflictReviewPage(
-      sync: sync,
-      onResolved: () async => changed++,
-    )));
+          sync: sync,
+          onResolved: () async => changed++,
+        )));
     await tester.pumpAndSettle();
     expect(find.textContaining('本地版本 1'), findsOneWidget);
     expect(find.textContaining('服务器版本 2'), findsOneWidget);
@@ -91,6 +95,9 @@ void main() {
         remote: remote,
         action: 'update'));
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: ConflictReviewPage(sync: sync, onResolved: () async {})));
     await tester.pumpAndSettle();
     expect(find.textContaining('服务器已删除该日记'), findsOneWidget);
@@ -114,10 +121,13 @@ void main() {
         remote: null,
         action: 'delete'));
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: ConflictReviewPage(
-      sync: sync,
-      onResolved: () async {},
-    )));
+          sync: sync,
+          onResolved: () async {},
+        )));
     await tester.pumpAndSettle();
     expect(find.textContaining('服务器版本暂不可用'), findsOneWidget);
     expect(

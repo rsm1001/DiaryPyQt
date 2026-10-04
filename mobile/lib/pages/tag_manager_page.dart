@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../localization/app_strings.dart';
 import '../models/diary_tag.dart';
 import '../services/diary_api.dart';
 
@@ -30,24 +31,28 @@ class _TagManagerPageState extends State<TagManagerPage> {
   }
 
   Future<String?> _nameDialog({String? initial}) async {
+    final strings = AppStrings.of(context);
     final controller = TextEditingController(text: initial ?? '');
     return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(initial == null ? '新建标签' : '重命名标签'),
+        title: Text(initial == null ? strings.createTag : strings.renameTag),
         content: TextField(
           controller: controller,
           autofocus: true,
           textInputAction: TextInputAction.done,
-          decoration: const InputDecoration(labelText: '名称'),
+          decoration: InputDecoration(labelText: strings.name),
           onSubmitted: (value) => Navigator.pop(context, value.trim()),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context), child: const Text('取消')),
+            onPressed: () => Navigator.pop(context),
+            child: Text(strings.cancel),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: const Text('保存')),
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: Text(strings.save),
+          ),
         ],
       ),
     );
@@ -60,7 +65,9 @@ class _TagManagerPageState extends State<TagManagerPage> {
       await widget.api.createTag(name);
       _reload();
     } catch (_) {
-      if (mounted) setState(() => _error = '创建标签失败');
+      if (mounted) {
+        setState(() => _error = AppStrings.of(context).createTagFailed);
+      }
     }
   }
 
@@ -71,23 +78,28 @@ class _TagManagerPageState extends State<TagManagerPage> {
       await widget.api.updateTag(tag, name);
       _reload();
     } catch (_) {
-      if (mounted) setState(() => _error = '重命名失败；标签重复或仍有网络问题');
+      if (mounted) {
+        setState(() => _error = AppStrings.of(context).renameTagFailed);
+      }
     }
   }
 
   Future<void> _delete(DiaryTag tag) async {
+    final strings = AppStrings.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('删除标签？'),
-        content: Text('确定删除“${tag.name}”？正在使用的标签不能删除。'),
+        title: Text(strings.deleteTagTitle),
+        content: Text(strings.deleteTagMessage(tag.name)),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消')),
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(strings.cancel),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('删除')),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(strings.purge),
+          ),
         ],
       ),
     );
@@ -96,57 +108,58 @@ class _TagManagerPageState extends State<TagManagerPage> {
       await widget.api.deleteTag(tag);
       _reload();
     } catch (_) {
-      if (mounted) setState(() => _error = '删除失败；正在使用的标签不能删除');
+      if (mounted) setState(() => _error = strings.deleteTagFailed);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          title: const Text('标签管理'),
-          actions: [
-            IconButton(onPressed: _create, icon: const Icon(Icons.add))
-          ],
-        ),
-        body: FutureBuilder<List<DiaryTag>>(
-          future: _tags,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final tags = snapshot.data ?? const <DiaryTag>[];
-            return Column(children: [
-              if (_error != null)
-                MaterialBanner(content: Text(_error!), actions: [
-                  TextButton(onPressed: _reload, child: const Text('重试'))
-                ]),
-              Expanded(
-                child: tags.isEmpty
-                    ? const Center(child: Text('暂无标签'))
-                    : ListView.builder(
-                        itemCount: tags.length,
-                        itemBuilder: (context, index) {
-                          final tag = tags[index];
-                          return ListTile(
-                            leading: const Icon(Icons.label_outline),
-                            title: Text(tag.name),
-                            trailing: PopupMenuButton<String>(
-                              onSelected: (action) => action == 'rename'
-                                  ? _rename(tag)
-                                  : _delete(tag),
-                              itemBuilder: (context) => const [
-                                PopupMenuItem(
-                                    value: 'rename', child: Text('重命名')),
-                                PopupMenuItem(
-                                    value: 'delete', child: Text('删除')),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-              ),
-            ]);
-          },
-        ),
-      );
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(strings.tagManagement),
+        actions: [IconButton(onPressed: _create, icon: const Icon(Icons.add))],
+      ),
+      body: FutureBuilder<List<DiaryTag>>(
+        future: _tags,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final tags = snapshot.data ?? const <DiaryTag>[];
+          return Column(children: [
+            if (_error != null)
+              MaterialBanner(content: Text(_error!), actions: [
+                TextButton(onPressed: _reload, child: Text(strings.retry)),
+              ]),
+            Expanded(
+              child: tags.isEmpty
+                  ? Center(child: Text(strings.noTagsAvailable))
+                  : ListView.builder(
+                      itemCount: tags.length,
+                      itemBuilder: (context, index) {
+                        final tag = tags[index];
+                        return ListTile(
+                          leading: const Icon(Icons.label_outline),
+                          title: Text(tag.name),
+                          trailing: PopupMenuButton<String>(
+                            onSelected: (action) => action == 'rename'
+                                ? _rename(tag)
+                                : _delete(tag),
+                            itemBuilder: (context) => [
+                              PopupMenuItem(
+                                  value: 'rename', child: Text(strings.rename)),
+                              PopupMenuItem(
+                                  value: 'delete', child: Text(strings.purge)),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ]);
+        },
+      ),
+    );
+  }
 }

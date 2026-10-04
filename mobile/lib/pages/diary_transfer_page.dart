@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../backup/local_backup.dart';
 import '../backup/local_store_backup.dart';
+import '../localization/app_strings.dart';
 
 import '../platform/diary_document_adapter.dart';
 import '../transfer/diary_csv.dart';
@@ -41,8 +42,9 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
       final pending = (await widget.store.getOutbox()).length;
       final conflicts = (await widget.store.getConflicts()).length;
       if (mounted) {
-        setState(() => _message =
-            healthy ? '本地数据库完整性检查通过；待同步 $pending 条，待审核冲突 $conflicts 条。' : '本地数据库完整性检查未通过，请先导出备份并停止写入。');
+        setState(() => _message = healthy
+            ? '本地数据库完整性检查通过；待同步 $pending 条，待审核冲突 $conflicts 条。'
+            : '本地数据库完整性检查未通过，请先导出备份并停止写入。');
       }
     } catch (error, stack) {
       developer.log(
@@ -217,61 +219,64 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('日记导入导出')),
-        body: ListView(padding: const EdgeInsets.all(16), children: [
-          if (_busy) const LinearProgressIndicator(),
-          ListTile(
-            leading: const Icon(Icons.verified_outlined),
-            title: const Text('检查本地数据库完整性'),
-            subtitle: const Text('检查失败不会修改本地数据'),
-            onTap: _busy ? null : _checkLocalIntegrity,
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    return Scaffold(
+      appBar: AppBar(title: Text(strings.transferTitle)),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        if (_busy) const LinearProgressIndicator(),
+        ListTile(
+          leading: const Icon(Icons.verified_outlined),
+          title: Text(strings.checkIntegrity),
+          subtitle: Text(strings.integrityNote),
+          onTap: _busy ? null : _checkLocalIntegrity,
+        ),
+        ListTile(
+          leading: const Icon(Icons.archive_outlined),
+          title: Text(strings.exportBackup),
+          subtitle: Text(strings.exportBackupNote),
+          onTap: _busy ? null : _backupLocal,
+        ),
+        ListTile(
+          leading: const Icon(Icons.unarchive_outlined),
+          title: Text(strings.restoreBackup),
+          subtitle: Text(strings.restoreBackupNote),
+          onTap: _busy ? null : _restoreLocalBackup,
+        ),
+        ListTile(
+          leading: const Icon(Icons.upload_file),
+          title: Text(strings.exportJson),
+          subtitle: Text(strings.exportJsonNote),
+          onTap: _busy ? null : () => _export(),
+        ),
+        ListTile(
+          leading: const Icon(Icons.download),
+          title: Text(strings.importJson),
+          subtitle: Text(strings.importJsonNote),
+          onTap: _busy ? null : () => _import(),
+        ),
+        ListTile(
+          leading: const Icon(Icons.table_view),
+          title: Text(strings.exportCsv),
+          subtitle: Text(strings.exportCsvNote),
+          onTap: _busy ? null : () => _export(csv: true),
+        ),
+        ListTile(
+          leading: const Icon(Icons.file_open),
+          title: Text(strings.importCsv),
+          subtitle: Text(strings.importCsvNote),
+          onTap: _busy ? null : () => _import(csv: true),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(strings.transferNote),
+        ),
+        if (_message != null)
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(_message!),
           ),
-          ListTile(
-            leading: const Icon(Icons.archive_outlined),
-            title: const Text('导出本地完整备份'),
-            subtitle: const Text('保存日记、同步队列和播放记录；不含音频、地址及密码'),
-            onTap: _busy ? null : _backupLocal,
-          ),
-          ListTile(
-            leading: const Icon(Icons.unarchive_outlined),
-            title: const Text('恢复本地完整备份'),
-            subtitle: const Text('恢复前校验文件；失败时自动回滚'),
-            onTap: _busy ? null : _restoreLocalBackup,
-          ),
-          ListTile(
-            leading: const Icon(Icons.upload_file),
-            title: const Text('导出 JSON 日记'),
-            subtitle: const Text('导出当前缓存的日记，包含查看次数'),
-            onTap: _busy ? null : () => _export(),
-          ),
-          ListTile(
-            leading: const Icon(Icons.download),
-            title: const Text('从 JSON 导入'),
-            subtitle: const Text('新建不重复的日记，支持断网待同步'),
-            onTap: _busy ? null : () => _import(),
-          ),
-          ListTile(
-            leading: const Icon(Icons.table_view),
-            title: const Text('导出 CSV'),
-            subtitle: const Text('导出本地日记，与电脑端 CSV 字段兼容'),
-            onTap: _busy ? null : () => _export(csv: true),
-          ),
-          ListTile(
-            leading: const Icon(Icons.file_open),
-            title: const Text('从 CSV 导入'),
-            subtitle: const Text('先预览再导入；有错误行时整批拒绝'),
-            onTap: _busy ? null : () => _import(csv: true),
-          ),
-          const Padding(
-            padding: EdgeInsets.all(12),
-            child: Text('导入不覆盖已有日记，不导入旧 ID 或历史查看统计。CSV 不是数据库备份。'),
-          ),
-          if (_message != null)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(_message!),
-            ),
-        ]),
-      );
+      ]),
+    );
+  }
 }

@@ -1,12 +1,16 @@
 import 'package:diary_mobile/pages/batch_tag_dialog.dart';
 import 'package:diary_mobile/tags/batch_tag_policy.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets('batch tag dialog requires a tag before add', (tester) async {
     BatchTagSelection? selection;
     await tester.pumpWidget(MaterialApp(
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       home: Scaffold(
         body: TextButton(
           onPressed: () async {

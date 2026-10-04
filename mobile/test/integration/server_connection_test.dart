@@ -1,6 +1,7 @@
 import 'package:diary_mobile/config/app_config.dart';
 import 'package:diary_mobile/pages/server_connection_dialog.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -19,6 +20,9 @@ void main() {
   testWidgets('连接对话框在校验通过后才返回地址和新密码', (tester) async {
     ServerConnectionInput? selected;
     await tester.pumpWidget(MaterialApp(
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       home: Builder(
         builder: (context) => Scaffold(
           body: TextButton(

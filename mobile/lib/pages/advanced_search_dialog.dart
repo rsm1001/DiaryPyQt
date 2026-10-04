@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../localization/app_strings.dart';
 import '../services/diary_filter.dart';
 
 Future<DiarySearchOptions?> showAdvancedSearchDialog(
@@ -102,22 +103,23 @@ class _AdvancedSearchDialogState extends State<_AdvancedSearchDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final tags = {...widget.availableTags, ...widget.initial.tags}.toList()
       ..sort();
     return AlertDialog(
-      title: const Text('高级搜索'),
+      title: Text(strings.advancedSearch),
       content: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(
             title: Text(_from == null
-                ? '开始日期不限'
+                ? strings.startDateUnlimited
                 : '开始：${_from!.toIso8601String().substring(0, 10)}'),
             trailing: const Icon(Icons.date_range),
             onTap: () => _pickDate(true),
           ),
           ListTile(
             title: Text(_to == null
-                ? '结束日期不限'
+                ? strings.endDateUnlimited
                 : '结束：${_to!.toIso8601String().substring(0, 10)}'),
             trailing: const Icon(Icons.date_range),
             onTap: () => _pickDate(false),
@@ -125,12 +127,12 @@ class _AdvancedSearchDialogState extends State<_AdvancedSearchDialog> {
           TextField(
             controller: _minViews,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: '最少查看次数'),
+            decoration: InputDecoration(labelText: strings.minimumViews),
           ),
           TextField(
             controller: _maxViews,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: '最多查看次数'),
+            decoration: InputDecoration(labelText: strings.maximumViews),
           ),
           if (tags.isNotEmpty) ...[
             const Align(
@@ -163,9 +165,9 @@ class _AdvancedSearchDialogState extends State<_AdvancedSearchDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, const DiarySearchOptions()),
-          child: const Text('清除高级条件'),
+          child: Text(strings.clearAdvancedConditions),
         ),
-        FilledButton(onPressed: _apply, child: const Text('应用')),
+        FilledButton(onPressed: _apply, child: Text(strings.apply)),
       ],
     );
   }

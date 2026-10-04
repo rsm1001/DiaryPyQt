@@ -6,6 +6,7 @@ import 'package:diary_mobile/transfer/diary_transfer.dart';
 import 'package:diary_mobile/services/local_store.dart';
 import 'package:diary_mobile/services/sync_manager.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeDocuments extends DiaryDocumentAdapter {
@@ -57,6 +58,9 @@ void main() {
       var notified = false;
       addTearDown(api.dispose);
       await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: DiaryTransferPage(
           store: store,
           sync: sync,
@@ -83,6 +87,9 @@ void main() {
     final sync = _MemorySync(api: api, store: store);
     addTearDown(api.dispose);
     await tester.pumpWidget(MaterialApp(
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       home: DiaryTransferPage(
         store: store,
         sync: sync,
