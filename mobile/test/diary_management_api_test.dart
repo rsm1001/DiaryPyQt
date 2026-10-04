@@ -120,6 +120,50 @@ void main() {
     api.dispose();
   });
 
+  test('daily statistics and calendar APIs parse date-scoped responses',
+      () async {
+    final requests = <http.Request>[];
+    final client = MockClient((request) async {
+      requests.add(request);
+      if (request.url.path.endsWith('/statistics/daily')) {
+        return http.Response.bytes(
+          utf8.encode(jsonEncode({
+            'start_date': '2026-10-01',
+            'end_date': '2026-10-03',
+            'total_events': 325,
+            'active_days': 2,
+            'daily_counts': {'2026-10-01': 120, '2026-10-03': 205},
+          })),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }
+      return http.Response.bytes(
+        utf8.encode(jsonEncode({
+          'items': [diaryJson()]
+        })),
+        200,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+      );
+    });
+    final api = DiaryApi(client: client, baseUrl: 'https://example.invalid');
+
+    final daily = await api.fetchDailyStatistics(
+      start: DateTime(2026, 10, 1),
+      end: DateTime(2026, 10, 3),
+    );
+    final diaries = await api.fetchDiariesByDate('2026-10-03');
+
+    expect(daily.totalEvents, 325);
+    expect(daily.dailyCounts['2026-10-03'], 205);
+    expect(diaries.single.id, 'entry-id');
+    expect(requests[0].url.queryParameters, {
+      'start_date': '2026-10-01',
+      'end_date': '2026-10-03',
+    });
+    expect(requests[1].url.queryParameters, {'date': '2026-10-03'});
+    api.dispose();
+  });
   test('trash API supports list, restore, and permanent delete', () async {
     final requests = <http.Request>[];
     final client = MockClient((request) async {

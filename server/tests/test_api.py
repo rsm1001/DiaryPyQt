@@ -282,6 +282,43 @@ def test_view_tracking_updates_diary_response_and_statistics():
             assert stats.json()["total_views"] == 2
             assert stats.json()["most_viewed_id"] == diary["id"]
 
+def test_daily_view_statistics_uses_real_events_and_calendar_returns_active_diaries():
+    with TemporaryDirectory() as temp_dir:
+        with TestClient(create_app(settings=build_settings(temp_dir))) as client:
+            first = client.post('/api/v1/diaries', json={
+                'date': '2026-10-01', 'content': '十月一日日记', 'tags': ['节日'],
+            }).json()
+            second = client.post('/api/v1/diaries', json={
+                'date': '2026-10-02', 'content': '十月二日日记', 'tags': [],
+            }).json()
+            client.post(f"/api/v1/diaries/{first['id']}/view", json={
+                'event_id': 'daily-1', 'viewed_at': '2026-10-01T01:00:00Z',
+            })
+            client.post(f"/api/v1/diaries/{first['id']}/view", json={
+                'event_id': 'daily-2', 'viewed_at': '2026-10-02T02:00:00Z',
+            })
+            client.post(f"/api/v1/diaries/{second['id']}/view-baselines", json={
+                'source_id': 'desktop-baseline', 'view_count': 20,
+                'last_viewed_at': '2026-09-30T00:00:00Z',
+            })
+            daily = client.get('/api/v1/statistics/daily', params={
+                'start_date': '2026-10-01', 'end_date': '2026-10-03',
+            })
+            assert daily.status_code == 200
+            assert daily.json()['daily_counts'] == {
+                '2026-10-01': 1, '2026-10-02': 1,
+            }
+            assert daily.json()['total_events'] == 2
+            assert daily.json()['active_days'] == 2
+            calendar = client.get('/api/v1/calendar/diaries', params={'date': '2026-10-01'})
+            assert calendar.status_code == 200
+            assert calendar.json()['items'][0]['id'] == first['id']
+            invalid = client.get('/api/v1/statistics/daily', params={
+                'start_date': '2026-10-03', 'end_date': '2026-10-01',
+            })
+            assert invalid.status_code == 422
+            assert client.get('/api/v1/calendar/diaries', params={'date': 'invalid'}).status_code == 422
+
 def test_trash_restore_and_permanent_delete():
     with TemporaryDirectory() as temp_dir:
         settings = build_settings(temp_dir)

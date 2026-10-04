@@ -148,6 +148,11 @@ class DiaryService:
         except ValueError as error:
             raise ServiceError("VIEW_BASELINE_CONFLICT", "历史查看基线已导入且与本次不同", 409) from error
 
+    def daily_view_statistics(self, start_date: str, end_date: str) -> Dict[str, Any]:
+        return self.repository.daily_view_statistics(start_date, end_date)
+
+    def diaries_by_date(self, date_value: str) -> List[Dict[str, Any]]:
+        return self.repository.diaries_by_date(date_value)
     def view_statistics(self) -> Dict[str, Any]:
         return self.repository.view_statistics()
 

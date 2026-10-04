@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/app_preferences.dart';
 import '../models/diary.dart';
 import '../search/diary_highlight.dart';
 import '../search/diary_search_index.dart';
@@ -14,6 +15,7 @@ class DiaryListBody extends StatefulWidget {
     required this.selectedTag,
     required this.playingDiaryId,
     required this.snapshot,
+    this.preferences = AppPreferences.defaults,
     required this.onSearch,
     required this.onTag,
     required this.onRefresh,
@@ -31,6 +33,7 @@ class DiaryListBody extends StatefulWidget {
   final String? selectedTag;
   final String? playingDiaryId;
   final PlaybackSnapshot snapshot;
+  final AppPreferences preferences;
   final ValueChanged<String> onSearch;
   final ValueChanged<String?> onTag;
   final VoidCallback? onClearFilters;
@@ -123,8 +126,10 @@ class _DiaryListBodyState extends State<DiaryListBody> {
                 ..sort();
               final tag =
                   tags.contains(widget.selectedTag) ? widget.selectedTag : null;
-              final filtered = _index!.search(widget.searchQuery, tag,
-                  options: widget.searchOptions);
+              final filtered = [
+                ..._index!.search(widget.searchQuery, tag,
+                    options: widget.searchOptions)
+              ]..sort(widget.preferences.compare);
               final terms = diarySearchTerms(widget.searchQuery);
               final colors = Theme.of(context).colorScheme;
               final highlight = TextStyle(

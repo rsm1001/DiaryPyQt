@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/app_config.dart';
 import '../deletion/random_deletion_page.dart';
 import '../conflicts/conflict_review_page.dart';
+import '../models/app_preferences.dart';
 import '../models/audio_asset.dart';
 import '../models/diary.dart';
 import 'advanced_search_dialog.dart';
@@ -13,6 +14,7 @@ import 'batch_tag_dialog.dart';
 import 'diary_editor_page.dart';
 import 'diary_transfer_page.dart';
 import 'diary_statistics_page.dart';
+import 'app_settings_page.dart';
 import 'tag_manager_page.dart';
 import 'server_connection_dialog.dart';
 import 'trash_page.dart';
@@ -20,6 +22,7 @@ import '../services/diary_api.dart';
 import '../services/diary_filter.dart';
 import '../services/double_playback_service.dart';
 import '../services/local_store.dart';
+import '../services/app_preferences_store.dart';
 import '../services/sync_manager.dart';
 import '../services/sync_trigger.dart';
 import '../services/random_playback_plan.dart';
@@ -29,7 +32,15 @@ import '../widgets/sync_status_banner.dart';
 import '../voice/voice_selection_page.dart';
 
 class DiaryListPage extends StatefulWidget {
-  const DiaryListPage({super.key});
+  const DiaryListPage({
+    super.key,
+    this.preferences = AppPreferences.defaults,
+    this.onPreferencesChanged,
+  });
+
+  final AppPreferences preferences;
+  final ValueChanged<AppPreferences>? onPreferencesChanged;
+
   @override
   State<DiaryListPage> createState() => _DiaryListPageState();
 }
@@ -87,6 +98,7 @@ class _DiaryListPageState extends State<DiaryListPage>
   final Set<String> _selectedDiaryIds = {}, _prefetchFailed = {};
   bool _selectionMode = false;
   bool _batchBusy = false;
+  late AppPreferences _preferences = widget.preferences;
   @override
   void initState() {
     super.initState();
@@ -644,6 +656,19 @@ class _DiaryListPageState extends State<DiaryListPage>
     ));
   }
 
+  Future<void> _openSettings() async {
+    final updated = await Navigator.of(context).push<AppPreferences>(
+      MaterialPageRoute(
+        builder: (_) => AppSettingsPage(initial: _preferences),
+      ),
+    );
+    if (updated == null || !mounted) return;
+    await _store.saveAppPreferences(updated);
+    if (!mounted) return;
+    setState(() => _preferences = updated);
+    widget.onPreferencesChanged?.call(updated);
+  }
+
   Future<void> _openStatistics() async {
     final diaries = await _store.getDiaries();
     if (!mounted) return;
@@ -885,6 +910,8 @@ class _DiaryListPageState extends State<DiaryListPage>
                         });
                       } else if (action == 'statistics') {
                         _openStatistics();
+                      } else if (action == 'settings') {
+                        _openSettings();
                       }
                     },
                     itemBuilder: (_) => const [
@@ -905,6 +932,8 @@ class _DiaryListPageState extends State<DiaryListPage>
                           value: 'random_delete', child: Text('随机删除')),
                       PopupMenuItem(
                           value: 'statistics', child: Text('\u7edf\u8ba1')),
+                      PopupMenuItem(
+                          value: 'settings', child: Text('主题、语言与列表显示')),
                       PopupMenuItem(
                           value: 'server',
                           child: Text('\u670d\u52a1\u5668\u8bbe\u7f6e')),
@@ -954,6 +983,7 @@ class _DiaryListPageState extends State<DiaryListPage>
               selectedTag: _selectedTag,
               playingDiaryId: _playingDiaryId,
               snapshot: _snapshot,
+              preferences: _preferences,
               onSearch: (text) => setState(() => _searchQuery = text),
               onTag: (tag) => setState(() => _selectedTag = tag),
               onClearFilters: () => setState(() {

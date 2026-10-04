@@ -21,6 +21,7 @@ from server.logging_config import (
 from server.repository import DiaryRepository
 from server.sync.repository import SyncRepository
 from server.sync.service import SyncService
+from server.statistics.routes import router as statistics_router
 from server.schemas import (
     AudioAssetListResponse,
     AudioAssetResponse,
@@ -482,6 +483,7 @@ def create_app(
                               capabilities=["view_event_idempotent_v1", "desktop_view_baseline_v1"])
 
     app.include_router(router)
+    app.include_router(statistics_router, prefix='/api/v1')
     return app
 
 

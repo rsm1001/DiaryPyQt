@@ -290,6 +290,31 @@ class DiaryRepository:
                 "least_viewed_count": int(least["view_count"]) if least else 0,
             }
 
+    def daily_view_statistics(self, start_date: str, end_date: str) -> Dict[str, Any]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT substr(viewed_at, 1, 10) AS event_date, COUNT(*) AS event_count "
+                "FROM diary_view_events WHERE substr(viewed_at, 1, 10) BETWEEN ? AND ? "
+                "GROUP BY substr(viewed_at, 1, 10) ORDER BY event_date",
+                (start_date, end_date),
+            ).fetchall()
+            daily_counts = {row['event_date']: int(row['event_count']) for row in rows}
+            return {
+                'start_date': start_date,
+                'end_date': end_date,
+                'total_events': sum(daily_counts.values()),
+                'active_days': len(daily_counts),
+                'daily_counts': daily_counts,
+            }
+
+    def diaries_by_date(self, date_value: str) -> List[Dict[str, Any]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM diaries WHERE date = ? AND deleted_at IS NULL "
+                "ORDER BY updated_at DESC, created_at DESC",
+                (date_value,),
+            ).fetchall()
+            return [self._record(connection, row) for row in rows]
     def get(self, diary_id: str) -> Optional[Dict[str, Any]]:
         with self._connection() as connection:
             row = connection.execute("SELECT * FROM diaries WHERE id = ?", (diary_id,)).fetchone()

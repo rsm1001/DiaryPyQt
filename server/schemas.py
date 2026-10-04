@@ -1,6 +1,6 @@
 """日记 API 请求和响应模型。"""
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -58,6 +58,13 @@ class StatisticsResponse(BaseModel):
     least_viewed_id: Optional[str]
     least_viewed_count: int
 
+
+class DailyViewStatisticsResponse(BaseModel):
+    start_date: str
+    end_date: str
+    total_events: int
+    active_days: int
+    daily_counts: Dict[str, int]
 
 class DiaryListResponse(BaseModel):
     items: List[DiaryResponse]

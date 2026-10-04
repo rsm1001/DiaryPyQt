@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   http: ^1.2.2
   just_audio: ^0.9.46
   just_audio_background: ^0.0.1-beta.17

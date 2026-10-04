@@ -31,6 +31,8 @@ GET /health
 /api/v1/diaries/{id}/audio/generate
 /api/v1/diaries/{id}/audio
 /api/v1/audio-assets/{id}/download
+/api/v1/statistics/daily?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+/api/v1/calendar/diaries?date=YYYY-MM-DD
 ```
 
 数据库默认保存到 `server/data/diary_server.db`，音频默认保存到 `server/data/audio/`，真实数据库、音频和 `.env` 不提交到 Git。

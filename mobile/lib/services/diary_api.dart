@@ -12,6 +12,7 @@ import '../models/diary.dart';
 import '../models/diary_view_result.dart';
 import '../models/diary_tag.dart';
 import '../models/server_statistics.dart';
+import '../models/server_daily_statistics.dart';
 import '../playback/playback_record.dart';
 import '../voice/voice_profile.dart';
 
@@ -246,6 +247,43 @@ class DiaryApi {
     });
   }
 
+  Future<ServerDailyStatistics> fetchDailyStatistics({
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final response = await _client
+        .get(
+          Uri.parse('$_baseUrl/api/v1/statistics/daily')
+              .replace(queryParameters: {
+            'start_date': _dateText(start),
+            'end_date': _dateText(end),
+          }),
+          headers: _authHeaders,
+        )
+        .timeout(_timeout);
+    _ensureSuccess(response);
+    return ServerDailyStatistics.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<List<Diary>> fetchDiariesByDate(String date) async {
+    final response = await _client
+        .get(
+          Uri.parse('$_baseUrl/api/v1/calendar/diaries')
+              .replace(queryParameters: {'date': date}),
+          headers: _authHeaders,
+        )
+        .timeout(_timeout);
+    _ensureSuccess(response);
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return (body['items'] as List<dynamic>? ?? const [])
+        .map((item) => Diary.fromJson(item as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  String _dateText(DateTime date) => '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
   Future<ServerStatistics> fetchStatistics() async {
     final response = await _client
         .get(Uri.parse('$_baseUrl/api/v1/statistics'), headers: _authHeaders)
