@@ -1,5 +1,6 @@
 """日记后端基础和音频接口测试。"""
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from contextlib import closing
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -310,6 +311,8 @@ def test_daily_view_statistics_uses_real_events_and_calendar_returns_active_diar
             }
             assert daily.json()['total_events'] == 2
             assert daily.json()['active_days'] == 2
+            assert daily.json()['best_day_date'] == '2026-10-01'
+            assert daily.json()['best_day_views'] == 1
             calendar = client.get('/api/v1/calendar/diaries', params={'date': '2026-10-01'})
             assert calendar.status_code == 200
             assert calendar.json()['items'][0]['id'] == first['id']
@@ -318,6 +321,118 @@ def test_daily_view_statistics_uses_real_events_and_calendar_returns_active_diar
             })
             assert invalid.status_code == 422
             assert client.get('/api/v1/calendar/diaries', params={'date': 'invalid'}).status_code == 422
+
+def test_daily_statistics_includes_yesterday_and_all_time_best_outside_range():
+    yesterday = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+    with TemporaryDirectory() as temp_dir:
+        with TestClient(create_app(settings=build_settings(temp_dir))) as client:
+            diary = client.post('/api/v1/diaries', json={
+                'date': '2026-01-01', 'content': 'daily statistics', 'tags': [],
+            }).json()
+            diary_id = diary['id']
+            baseline = client.post(f'/api/v1/diaries/{diary_id}/view-baselines', json={
+                'source_id': 'old-desktop', 'view_count': 50,
+                'last_viewed_at': '2026-01-01T00:00:00Z',
+            })
+            assert baseline.status_code == 200
+            for number in range(2):
+                response = client.post(f'/api/v1/diaries/{diary_id}/view', json={
+                    'event_id': f'old-day-{number}',
+                    'viewed_at': f'2026-01-01T0{number + 1}:00:00Z',
+                })
+                assert response.status_code == 200
+            for number in range(3):
+                response = client.post(f'/api/v1/diaries/{diary_id}/view', json={
+                    'event_id': f'yesterday-{number}',
+                    'viewed_at': f'{yesterday}T0{number + 1}:00:00Z',
+                })
+                assert response.status_code == 200
+            repeated = client.post(f'/api/v1/diaries/{diary_id}/view', json={
+                'event_id': 'yesterday-0', 'viewed_at': f'{yesterday}T01:00:00Z',
+            })
+            assert repeated.status_code == 200
+            for _ in range(2):
+                result = client.get('/api/v1/statistics/daily', params={
+                    'start_date': '2026-01-01', 'end_date': '2026-01-01',
+                })
+                assert result.status_code == 200
+                data = result.json()
+                assert data['daily_counts'] == {'2026-01-01': 2}
+                assert data['total_events'] == 2
+                assert data['yesterday_date'] == yesterday
+                assert data['yesterday_total_views'] == 3
+                assert data['best_day_date'] == yesterday
+                assert data['best_day_views'] == 3
+            assert client.delete(f'/api/v1/diaries/{diary_id}?version=1').status_code == 204
+            trash_item = client.get('/api/v1/trash').json()['items'][0]
+            assert client.delete(
+                f"/api/v1/trash/{diary_id}/versions/{trash_item['version']}"
+            ).status_code == 204
+            after_purge = client.get('/api/v1/statistics/daily', params={
+                'start_date': '2026-01-01', 'end_date': '2026-01-01',
+            }).json()
+            assert after_purge['daily_counts'] == {'2026-01-01': 2}
+            assert after_purge['best_day_views'] == 3
+
+def test_daily_statistics_empty_history_has_no_best_day():
+    with TemporaryDirectory() as temp_dir:
+        with TestClient(create_app(settings=build_settings(temp_dir))) as client:
+            response = client.get('/api/v1/statistics/daily', params={
+                'start_date': '2026-10-01', 'end_date': '2026-10-31',
+            })
+            assert response.status_code == 200
+            assert response.json()['daily_counts'] == {}
+            assert response.json()['yesterday_total_views'] == 0
+            assert response.json()['best_day_date'] is None
+            assert response.json()['best_day_views'] == 0
+def test_daily_aggregate_migration_backfills_existing_events_once():
+    with TemporaryDirectory() as temp_dir:
+        settings = build_settings(temp_dir)
+        with TestClient(create_app(settings=settings)) as client:
+            diary = client.post('/api/v1/diaries', json={
+                'date': '2026-10-01', 'content': 'legacy daily events', 'tags': [],
+            }).json()
+            for number in range(2):
+                response = client.post(f"/api/v1/diaries/{diary['id']}/view", json={
+                    'event_id': f'legacy-{number}',
+                    'viewed_at': f'2026-10-01T0{number + 1}:00:00Z',
+                })
+                assert response.status_code == 200
+            with closing(sqlite3.connect(settings.db_path)) as connection:
+                connection.execute('DELETE FROM diary_daily_views')
+                connection.execute(
+                    "DELETE FROM diary_schema_migrations WHERE name = ?",
+                    ('daily_view_backfill_v1',),
+                )
+                connection.commit()
+            DiaryRepository(settings.db_path)
+            daily = client.get('/api/v1/statistics/daily', params={
+                'start_date': '2026-10-01', 'end_date': '2026-10-01',
+            })
+            assert daily.json()['daily_counts'] == {'2026-10-01': 2}
+            assert daily.json()['best_day_views'] == 2
+            DiaryRepository(settings.db_path)
+            repeated = client.get('/api/v1/statistics/daily', params={
+                'start_date': '2026-10-01', 'end_date': '2026-10-01',
+            })
+            assert repeated.json()['daily_counts'] == {'2026-10-01': 2}
+def test_daily_statistics_uses_utc_event_day_for_offset_timestamps():
+    with TemporaryDirectory() as temp_dir:
+        with TestClient(create_app(settings=build_settings(temp_dir))) as client:
+            diary = client.post('/api/v1/diaries', json={
+                'date': '2026-10-01', 'content': 'offset timestamp', 'tags': [],
+            }).json()
+            recorded = client.post(f"/api/v1/diaries/{diary['id']}/view", json={
+                'event_id': 'utc-boundary-1',
+                'viewed_at': '2026-10-02T00:15:00+08:00',
+            })
+            assert recorded.status_code == 200
+            daily = client.get('/api/v1/statistics/daily', params={
+                'start_date': '2026-10-01', 'end_date': '2026-10-02',
+            })
+            assert daily.status_code == 200
+            assert daily.json()['daily_counts'] == {'2026-10-01': 1}
+            assert daily.json()['best_day_date'] == '2026-10-01'
 
 def test_trash_restore_and_permanent_delete():
     with TemporaryDirectory() as temp_dir:

@@ -11,6 +11,7 @@ import '../services/diary_statistics.dart';
 import '../services/local_store.dart';
 import '../statistics/device_view_repository.dart';
 import '../statistics/monthly_diary_heatmap.dart';
+import '../statistics/server_daily_cache.dart';
 
 class DiaryStatisticsPage extends StatefulWidget {
   const DiaryStatisticsPage({
@@ -18,11 +19,13 @@ class DiaryStatisticsPage extends StatefulWidget {
     required this.diaries,
     required this.api,
     required this.store,
+    this.dailyCache,
   });
 
   final List<Diary> diaries;
   final DiaryApi api;
   final LocalStore store;
+  final ServerDailyCache? dailyCache;
 
   @override
   State<DiaryStatisticsPage> createState() => _DiaryStatisticsPageState();
@@ -31,6 +34,8 @@ class DiaryStatisticsPage extends StatefulWidget {
 class _DiaryStatisticsPageState extends State<DiaryStatisticsPage> {
   ServerStatistics? _server;
   ServerDailyStatistics? _serverDaily;
+  DateTime? _dailyFetchedAt;
+  bool _dailyFromCache = false;
   DeviceViewHistory? _history;
   late DateTime _month;
   bool _loadingServer = true;
@@ -85,6 +90,8 @@ class _DiaryStatisticsPageState extends State<DiaryStatisticsPage> {
     setState(() {
       _loadingMonth = true;
       _serverDaily = null;
+      _dailyFetchedAt = null;
+      _dailyFromCache = false;
       _serverDailyUnavailable = false;
       _history = null;
       _monthUnavailable = false;
@@ -105,13 +112,48 @@ class _DiaryStatisticsPageState extends State<DiaryStatisticsPage> {
         setState(() => _monthUnavailable = true);
       }
     }
+    final cache = widget.dailyCache ?? ServerDailyCache(widget.store);
+    try {
+      final stored = await cache.load(widget.api.cacheScope, start, end);
+      if (stored != null && mounted && request == _monthRequest) {
+        setState(() {
+          _serverDaily = stored.statistics;
+          _dailyFetchedAt = stored.fetchedAt;
+          _dailyFromCache = true;
+        });
+      }
+    } catch (error, stack) {
+      developer.log(
+        'server_daily_cache_read_failed request_id=${DateTime.now().microsecondsSinceEpoch}',
+        name: 'diary.statistics',
+        error: error,
+        stackTrace: stack,
+      );
+    }
     try {
       final daily = await widget.api.fetchDailyStatistics(
         start: start,
         end: end,
       );
+      final fetchedAt = DateTime.now().toUtc();
       if (mounted && request == _monthRequest) {
-        setState(() => _serverDaily = daily);
+        setState(() {
+          _serverDaily = daily;
+          _dailyFetchedAt = fetchedAt;
+          _dailyFromCache = false;
+          _serverDailyUnavailable = false;
+        });
+        try {
+          await cache.save(widget.api.cacheScope, start, end, daily,
+              fetchedAt: fetchedAt);
+        } catch (error, stack) {
+          developer.log(
+            'server_daily_cache_write_failed request_id=${DateTime.now().microsecondsSinceEpoch}',
+            name: 'diary.statistics',
+            error: error,
+            stackTrace: stack,
+          );
+        }
       }
     } catch (error, stack) {
       developer.log(
@@ -134,19 +176,17 @@ class _DiaryStatisticsPageState extends State<DiaryStatisticsPage> {
     final cached = widget.diaries
         .where((diary) => diary.date.startsWith(date))
         .toList(growable: false);
-    List<Diary> remote = const [];
-    var remoteUnavailable = false;
-    try {
-      remote = await widget.api.fetchDiariesByDate(date);
-    } catch (error, stack) {
-      remoteUnavailable = true;
-      developer.log(
-        'calendar_diaries_failed request_id=${DateTime.now().microsecondsSinceEpoch}',
-        name: 'diary.statistics',
-        error: error,
-        stackTrace: stack,
-      );
-    }
+    final remoteFuture = widget.api.fetchDiariesByDate(date).catchError(
+      (Object error, StackTrace stack) {
+        developer.log(
+          'calendar_diaries_failed request_id=${DateTime.now().microsecondsSinceEpoch}',
+          name: 'diary.statistics',
+          error: error,
+          stackTrace: stack,
+        );
+        Error.throwWithStackTrace(error, stack);
+      },
+    );
     if (!mounted) return;
     final strings = AppStrings.of(context);
     await showDialog<void>(
@@ -163,13 +203,29 @@ class _DiaryStatisticsPageState extends State<DiaryStatisticsPage> {
                   subtitle: Text(strings.viewed(diary.viewCount)),
                 )),
             if (cached.isEmpty) Text(strings.localNoDateDiaries),
-            Text(strings.serverCount(remote.length)),
-            ...remote.map((diary) => ListTile(
-                  dense: true,
-                  title: Text(diary.content),
-                  subtitle: Text(strings.serverHistoryDetails),
-                )),
-            if (remoteUnavailable) Text(strings.serverDateUnavailable),
+            FutureBuilder<List<Diary>>(
+              future: remoteFuture,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Text(strings.serverDateUnavailable);
+                }
+                if (!snapshot.hasData) {
+                  return Text(strings.loadingCalendarDate);
+                }
+                final remote = snapshot.data!;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(strings.serverCount(remote.length)),
+                    ...remote.map((diary) => ListTile(
+                          dense: true,
+                          title: Text(diary.content),
+                          subtitle: Text(strings.serverHistoryDetails),
+                        )),
+                  ],
+                );
+              },
+            ),
           ]),
         ),
         actions: [
@@ -247,11 +303,16 @@ class _DiaryStatisticsPageState extends State<DiaryStatisticsPage> {
         const Divider(height: 28),
         Text(strings.serverDailyDetails,
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        if (_serverDailyUnavailable)
+        if (_serverDailyUnavailable && _serverDaily == null)
           Text(strings.dailyUnavailable)
         else if (_serverDaily == null)
           Text(strings.loadingDaily)
         else ...[
+          if (_serverDailyUnavailable) Text(strings.dailyCacheHint),
+          if (_dailyFetchedAt != null)
+            Text(_dailyFromCache
+                ? strings.dailyCacheAt(_dailyFetchedAt!)
+                : strings.dailyLiveAt(_dailyFetchedAt!)),
           _StatCard(
             label: strings.serverDailyEvents,
             value: strings.count(_serverDaily!.totalEvents, strings.timesUnit),
@@ -260,6 +321,24 @@ class _DiaryStatisticsPageState extends State<DiaryStatisticsPage> {
             label: strings.activeDays,
             value: strings.count(_serverDaily!.activeDays, strings.dayUnit),
           ),
+          if (_serverDaily!.yesterdayDate == null ||
+              _serverDaily!.yesterdayTotalViews == null ||
+              _serverDaily!.bestDayViews == null)
+            Text(strings.dailyHistoryUnavailable),
+          if (_serverDaily!.yesterdayDate != null &&
+              _serverDaily!.yesterdayTotalViews != null)
+            _StatCard(
+              label:
+                  '${strings.yesterdayServerViews} · ${_serverDaily!.yesterdayDate}',
+              value: strings.count(
+                  _serverDaily!.yesterdayTotalViews!, strings.timesUnit),
+            ),
+          if (_serverDaily!.bestDayViews != null)
+            _StatCard(
+              label: strings.bestServerDay,
+              value: strings.bestServerDayValue(
+                  _serverDaily!.bestDayDate, _serverDaily!.bestDayViews!),
+            ),
         ],
         const Divider(height: 28),
         Text(strings.deviceCache,

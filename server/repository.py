@@ -82,8 +82,32 @@ class DiaryRepository:
                     viewed_at TEXT NOT NULL,
                     FOREIGN KEY (diary_id) REFERENCES diaries(id) ON DELETE CASCADE
                 );
+                CREATE INDEX IF NOT EXISTS idx_view_events_day
+                    ON diary_view_events(substr(viewed_at, 1, 10));
+                CREATE TABLE IF NOT EXISTS diary_daily_views (
+                    event_date TEXT PRIMARY KEY,
+                    view_count INTEGER NOT NULL CHECK(view_count >= 0)
+                );
+                CREATE TABLE IF NOT EXISTS diary_schema_migrations (
+                    name TEXT PRIMARY KEY
+                );
                 """
             )
+            connection.execute("BEGIN IMMEDIATE")
+            marker = connection.execute(
+                "SELECT 1 FROM diary_schema_migrations WHERE name = ?",
+                ("daily_view_backfill_v1",),
+            ).fetchone()
+            if marker is None:
+                connection.execute(
+                    "INSERT OR REPLACE INTO diary_daily_views (event_date, view_count) "
+                    "SELECT substr(viewed_at, 1, 10), COUNT(*) FROM diary_view_events "
+                    "GROUP BY substr(viewed_at, 1, 10)"
+                )
+                connection.execute(
+                    "INSERT INTO diary_schema_migrations (name) VALUES (?)",
+                    ("daily_view_backfill_v1",),
+                )
 
     @staticmethod
     def _tags(connection: sqlite3.Connection, diary_id: str) -> List[str]:
@@ -184,26 +208,26 @@ class DiaryRepository:
             return True
     def record_view(self, diary_id: str, viewed_at: str, event_id: Optional[str] = None) -> Dict[str, Any]:
         with self._connection() as connection:
-            accepted = True
-            if event_id is not None:
-                inserted = connection.execute(
-                    "INSERT OR IGNORE INTO diary_view_events (event_id, diary_id, viewed_at) VALUES (?, ?, ?)",
-                    (event_id, diary_id, viewed_at),
+            event_id = event_id or str(uuid4())
+            inserted = connection.execute(
+                "INSERT OR IGNORE INTO diary_view_events (event_id, diary_id, viewed_at) "
+                "VALUES (?, ?, ?)",
+                (event_id, diary_id, viewed_at),
+            )
+            if inserted.rowcount != 1:
+                existing = connection.execute(
+                    "SELECT diary_id FROM diary_view_events WHERE event_id = ?",
+                    (event_id,),
+                ).fetchone()
+                if existing["diary_id"] != diary_id:
+                    raise ValueError("查看事件 ID 已用于其他日记")
+                connection.execute(
+                    """UPDATE diary_views SET last_viewed_at =
+                       (SELECT MAX(viewed_at) FROM diary_view_events WHERE diary_id = ?)
+                       WHERE diary_id = ? AND last_viewed_at IS NULL""",
+                    (diary_id, diary_id),
                 )
-                accepted = inserted.rowcount == 1
-                if not accepted:
-                    existing = connection.execute(
-                        "SELECT diary_id FROM diary_view_events WHERE event_id = ?", (event_id,)
-                    ).fetchone()
-                    if existing["diary_id"] != diary_id:
-                        raise ValueError("查看事件 ID 已用于其他日记")
-                    connection.execute(
-                        """UPDATE diary_views SET last_viewed_at =
-                           (SELECT MAX(viewed_at) FROM diary_view_events WHERE diary_id = ?)
-                           WHERE diary_id = ? AND last_viewed_at IS NULL""",
-                        (diary_id, diary_id),
-                    )
-            if accepted:
+            else:
                 connection.execute(
                     """INSERT INTO diary_views (diary_id, view_count, last_viewed_at)
                        VALUES (?, 1, ?)
@@ -213,6 +237,12 @@ class DiaryRepository:
                                WHEN diary_views.last_viewed_at IS NULL THEN excluded.last_viewed_at
                                ELSE MAX(diary_views.last_viewed_at, excluded.last_viewed_at) END""",
                     (diary_id, viewed_at),
+                )
+                connection.execute(
+                    "INSERT INTO diary_daily_views (event_date, view_count) VALUES (?, 1) "
+                    "ON CONFLICT(event_date) DO UPDATE SET "
+                    "view_count = diary_daily_views.view_count + 1",
+                    (viewed_at[:10],),
                 )
             row = connection.execute(
                 "SELECT view_count, last_viewed_at FROM diary_views WHERE diary_id = ?",
@@ -290,23 +320,35 @@ class DiaryRepository:
                 "least_viewed_count": int(least["view_count"]) if least else 0,
             }
 
-    def daily_view_statistics(self, start_date: str, end_date: str) -> Dict[str, Any]:
+    def daily_view_statistics(self, start_date: str, end_date: str,
+                              yesterday_date: str) -> Dict[str, Any]:
         with self._connection() as connection:
             rows = connection.execute(
-                "SELECT substr(viewed_at, 1, 10) AS event_date, COUNT(*) AS event_count "
-                "FROM diary_view_events WHERE substr(viewed_at, 1, 10) BETWEEN ? AND ? "
-                "GROUP BY substr(viewed_at, 1, 10) ORDER BY event_date",
+                "SELECT event_date, view_count AS event_count "
+                "FROM diary_daily_views WHERE event_date BETWEEN ? AND ? "
+                "ORDER BY event_date",
                 (start_date, end_date),
             ).fetchall()
-            daily_counts = {row['event_date']: int(row['event_count']) for row in rows}
-            return {
-                'start_date': start_date,
-                'end_date': end_date,
-                'total_events': sum(daily_counts.values()),
-                'active_days': len(daily_counts),
-                'daily_counts': daily_counts,
-            }
-
+            yesterday = connection.execute(
+                "SELECT view_count FROM diary_daily_views WHERE event_date = ?",
+                (yesterday_date,),
+            ).fetchone()
+            best = connection.execute(
+                "SELECT event_date, view_count AS event_count FROM diary_daily_views "
+                "ORDER BY view_count DESC, event_date ASC LIMIT 1"
+            ).fetchone()
+        daily_counts = {row['event_date']: int(row['event_count']) for row in rows}
+        return {
+            'start_date': start_date,
+            'end_date': end_date,
+            'total_events': sum(daily_counts.values()),
+            'active_days': len(daily_counts),
+            'daily_counts': daily_counts,
+            'yesterday_date': yesterday_date,
+            'yesterday_total_views': int(yesterday['view_count']) if yesterday else 0,
+            'best_day_date': best['event_date'] if best else None,
+            'best_day_views': int(best['event_count']) if best else 0,
+        }
     def diaries_by_date(self, date_value: str) -> List[Dict[str, Any]]:
         with self._connection() as connection:
             rows = connection.execute(

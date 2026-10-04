@@ -65,6 +65,10 @@ class DailyViewStatisticsResponse(BaseModel):
     total_events: int
     active_days: int
     daily_counts: Dict[str, int]
+    yesterday_date: str
+    yesterday_total_views: int
+    best_day_date: Optional[str]
+    best_day_views: int
 
 class DiaryListResponse(BaseModel):
     items: List[DiaryResponse]

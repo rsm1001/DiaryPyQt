@@ -2,6 +2,7 @@ export 'app_strings_extra.dart';
 export 'app_strings_playback.dart';
 export 'app_strings_transfer.dart';
 export 'app_strings_calendar.dart';
+export 'app_strings_statistics.dart';
 
 import 'package:flutter/widgets.dart';
 

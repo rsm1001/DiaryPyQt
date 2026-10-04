@@ -10,6 +10,7 @@ import '../conflicts/conflict_review_page.dart';
 import '../models/app_preferences.dart';
 import '../models/audio_asset.dart';
 import '../models/diary.dart';
+import '../playback/audio_request_registry.dart';
 import '../playback/playback_resume_dialog.dart';
 import 'advanced_search_dialog.dart';
 import 'batch_tag_dialog.dart';
@@ -94,7 +95,7 @@ class _DiaryListPageState extends State<DiaryListPage>
   bool _randomMode = false;
   int _randomToken = 0;
   int _playRequest = 0;
-  final Map<String, Future<AudioAsset>> _audioPrefetch = {};
+  final _audioRequests = AudioRequestRegistry();
   int _prefetchActive = 0;
   final Map<String, int> _randomFailures = {};
   final Set<String> _selectedDiaryIds = {}, _prefetchFailed = {};
@@ -176,7 +177,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       setState(() {
         _serverUrl = url;
         _voiceId = selectedVoice;
-        _audioPrefetch.clear();
+        _audioRequests.clear();
         _savedPassword = password;
         _api = candidate;
         _sync = SyncManager(api: _api, store: _store);
@@ -352,33 +353,31 @@ class _DiaryListPageState extends State<DiaryListPage>
       [diary.id, diary.contentHash, _voiceId].join('|');
   Future<AudioAsset> _ensureAudio(Diary diary, {bool foreground = false}) {
     final key = _audioKey(diary);
-    final existing = _audioPrefetch[key];
-    if (existing != null) return existing;
-    final future = _sync
-        .ensureAudio(diary,
-            voiceId: _voiceId,
-            onStatus: foreground
-                ? (status) {
-                    if (mounted &&
-                        _playingDiaryId == diary.id &&
-                        _audioKey(diary) == key) {
-                      setState(() => _audioStatus = status);
-                    }
-                  }
-                : null)
-        .catchError((Object error, StackTrace stack) {
-      _audioPrefetch.remove(key);
-      Error.throwWithStackTrace(error, stack);
-    });
-    _audioPrefetch[key] = future;
-    return future;
+    return _audioRequests.ensure(
+      key,
+      (reportStatus) => _sync.ensureAudio(
+        diary,
+        voiceId: _voiceId,
+        onStatus: reportStatus,
+      ),
+      onStatus: foreground
+          ? (status) {
+              if (mounted &&
+                  _playingDiaryId == diary.id &&
+                  _audioKey(diary) == key) {
+                setState(() => _audioStatus =
+                    AppStrings.of(context).audioCacheStatus(status));
+              }
+            }
+          : null,
+    );
   }
 
   Future<void> _prefetchRandomPlan() async {
     if (!_randomMode) return;
     for (final diary in _randomPlanner.peek(limit: 3)) {
       if (_prefetchActive >= 2 ||
-          _audioPrefetch.containsKey(_audioKey(diary)) ||
+          _audioRequests.contains(_audioKey(diary)) ||
           _prefetchFailed.contains(_audioKey(diary))) {
         continue;
       }
@@ -572,7 +571,12 @@ class _DiaryListPageState extends State<DiaryListPage>
     });
     var completed = false;
     try {
+      final audioKey = _audioKey(diary);
       final asset = await _ensureAudio(diary, foreground: true);
+      _audioRequests.clearStatusListener(audioKey);
+      if (mounted && request == _playRequest) {
+        setState(() => _audioStatus = '');
+      }
       _playingVoiceId = asset.voiceId;
       final resume =
           await _askPlaybackResume(diary.id, asset.voiceId, asset.durationMs);
@@ -607,6 +611,7 @@ class _DiaryListPageState extends State<DiaryListPage>
                 : AppStrings.of(context).playbackFailed);
       }
     } finally {
+      _audioRequests.clearStatusListener(_audioKey(diary));
       if (mounted && request == _playRequest && _playingDiaryId == diary.id) {
         setState(() => _audioStatus = '');
         setState(() => _playingDiaryId = null);
@@ -782,7 +787,7 @@ class _DiaryListPageState extends State<DiaryListPage>
   @override
   void dispose() {
     _randomPlanner.clear();
-    _audioPrefetch.clear();
+    _audioRequests.clear();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_syncTrigger.dispose());
     _randomToken++;
@@ -871,7 +876,7 @@ class _DiaryListPageState extends State<DiaryListPage>
                         if (mounted) {
                           setState(() {
                             _voiceId = selected;
-                            _audioPrefetch.clear();
+                            _audioRequests.clear();
                             _prefetchFailed.clear();
                           });
                         }

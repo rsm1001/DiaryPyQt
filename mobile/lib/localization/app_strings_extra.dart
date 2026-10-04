@@ -19,19 +19,19 @@ extension AppStringsExtra on AppStrings {
       ? 'Server date details are unavailable.'
       : '\u670d\u52a1\u5668\u65e5\u671f\u660e\u7ec6\u6682\u4e0d\u53ef\u7528\u3002';
   String get serverCacheFallback => english
-      ? 'Server statistics are unavailable; showing readable local cache data.'
-      : '\u670d\u52a1\u5668\u7edf\u8ba1\u4e0d\u53ef\u7528\uff1b\u4ee5\u4e0b\u5c55\u793a\u672c\u8bbe\u5907\u53ef\u8bfb\u53d6\u7684\u7f13\u5b58\u6570\u636e\u3002';
+      ? 'Server summary is unavailable; server history and device data below show their sources separately.'
+      : '服务器统计不可用；下方服务器历史明细与本设备数据分别标识来源。';
   String get serverPreviousFallback => english
       ? 'Server is unavailable; the summary below is the last successful result, not real-time data.'
       : '\u670d\u52a1\u5668\u6682\u4e0d\u53ef\u7528\uff1b\u4ee5\u4e0b\u6c47\u603b\u4e3a\u4e0a\u6b21\u6210\u529f\u83b7\u53d6\u7684\u7ed3\u679c\uff0c\u5e76\u975e\u5b9e\u65f6\u6570\u636e\u3002';
   String get loadingServerSummary => english
-      ? 'Loading server summary?'
+      ? 'Loading server summary...'
       : '\u6b63\u5728\u83b7\u53d6\u670d\u52a1\u5668\u6c47\u603b\u2026\u2026';
   String get dailyUnavailable => english
       ? 'Daily server details are unavailable; device events are not used as a substitute.'
       : '\u670d\u52a1\u5668\u6bcf\u65e5\u660e\u7ec6\u6682\u4e0d\u53ef\u7528\uff1b\u4e0d\u4f7f\u7528\u672c\u8bbe\u5907\u4e8b\u4ef6\u66ff\u4ee3\u3002';
   String get loadingDaily => english
-      ? 'Loading server daily details?'
+      ? 'Loading server daily details...'
       : '\u6b63\u5728\u8bfb\u53d6\u670d\u52a1\u5668\u6bcf\u65e5\u660e\u7ec6\u2026\u2026';
   String get deviceCacheNote => english
       ? 'These statistics only cover diaries cached on this device, not the entire server.'
@@ -40,7 +40,7 @@ extension AppStringsExtra on AppStrings {
       ? 'Device daily records failed to load. Please retry.'
       : '\u672c\u8bbe\u5907\u9010\u65e5\u8bb0\u5f55\u8bfb\u53d6\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5\u3002';
   String get loadingDeviceRecords => english
-      ? 'Loading device daily records?'
+      ? 'Loading device daily records...'
       : '\u6b63\u5728\u8bfb\u53d6\u672c\u8bbe\u5907\u9010\u65e5\u8bb0\u5f55\u2026\u2026';
   String get noDeviceEvents => english
       ? 'No new device view events this month.'
@@ -154,7 +154,7 @@ extension AppStringsExtra on AppStrings {
   String get deleteTagTitle =>
       english ? 'Delete tag?' : '\u5220\u9664\u6807\u7b7e\uff1f';
   String deleteTagMessage(String tag) => english
-      ? 'Delete ?$tag?? Tags in use cannot be deleted.'
+      ? 'Delete "$tag"? Tags in use cannot be deleted.'
       : '\u786e\u5b9a\u5220\u9664\u201c$tag\u201d\uff1f\u6b63\u5728\u4f7f\u7528\u7684\u6807\u7b7e\u4e0d\u80fd\u5220\u9664\u3002';
   String get deleteTagFailed => english
       ? 'Delete failed; tags in use cannot be deleted.'

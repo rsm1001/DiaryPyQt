@@ -122,4 +122,12 @@ extension AppStringsPlayback on AppStrings {
   String get noRandomPlaybackCandidate => english
       ? 'No diaries match the current filters for random playback.'
       : '\u5f53\u524d\u7b5b\u9009\u6ca1\u6709\u53ef\u968f\u673a\u64ad\u653e\u7684\u65e5\u8bb0';
+  String audioCacheStatus(String status) => switch (status) {
+        '正在生成音频' => english ? 'Generating audio' : status,
+        '正在下载音频' => english ? 'Downloading audio' : status,
+        '正在校验音频' => english ? 'Verifying audio' : status,
+        '音频已缓存' => english ? 'Audio cached' : status,
+        '已从离线缓存读取音频' => english ? 'Loaded audio from offline cache' : status,
+        _ => status,
+      };
 }

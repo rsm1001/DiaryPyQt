@@ -133,6 +133,10 @@ void main() {
             'total_events': 325,
             'active_days': 2,
             'daily_counts': {'2026-10-01': 120, '2026-10-03': 205},
+            'yesterday_date': '2026-10-02',
+            'yesterday_total_views': 4,
+            'best_day_date': '2026-10-03',
+            'best_day_views': 205,
           })),
           200,
           headers: {'content-type': 'application/json; charset=utf-8'},
@@ -156,6 +160,14 @@ void main() {
 
     expect(daily.totalEvents, 325);
     expect(daily.dailyCounts['2026-10-03'], 205);
+    expect(daily.yesterdayDate, '2026-10-02');
+    expect(daily.yesterdayTotalViews, 4);
+    expect(daily.bestDayDate, '2026-10-03');
+    expect(daily.bestDayViews, 205);
+    expect(daily.yesterdayDate, '2026-10-02');
+    expect(daily.yesterdayTotalViews, 4);
+    expect(daily.bestDayDate, '2026-10-03');
+    expect(daily.bestDayViews, 205);
     expect(diaries.single.id, 'entry-id');
     expect(requests[0].url.queryParameters, {
       'start_date': '2026-10-01',
