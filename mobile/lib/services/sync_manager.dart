@@ -9,6 +9,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import '../conflicts/diary_conflict.dart';
 import '../models/audio_asset.dart';
 import '../playback/playback_record.dart';
+import '../playback/local_store_playback.dart';
 import '../models/diary.dart';
 import '../tags/batch_tag_policy.dart';
 import '../tags/batch_tag_repository.dart';
@@ -204,7 +205,6 @@ class SyncManager {
         '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
         '${hex.substring(20)}';
   }
-
   Future<void> recordView(Diary diary) async {
     final eventId = _newViewEventId();
     final viewedAt = DateTime.now().toUtc().toIso8601String();
@@ -218,7 +218,6 @@ class SyncManager {
       if (!_isNetworkFailure(error)) rethrow;
     }
   }
-
   Future<void> restoreDiary(Diary diary) async {
     final pending = await store.getOutbox();
     if (pending.any((row) =>
@@ -247,7 +246,6 @@ class SyncManager {
       if (_isConflict(error)) await _captureConflict(diary.id, 'restore');
     }
   }
-
   Future<void> deleteDiary(Diary diary) async {
     final pending = await store.getOutbox();
     if (diary.id.startsWith('local-')) {
@@ -302,7 +300,6 @@ class SyncManager {
       if (_isConflict(error)) await _captureConflict(diary.id, 'delete');
     }
   }
-
   Future<PlaybackRecord> savePlaybackRecord({
     required String diaryId,
     required String voiceId,
@@ -324,10 +321,8 @@ class SyncManager {
     await store.savePlayback(record);
     return record;
   }
-
   Future<PlaybackRecord?> localPlayback(String diaryId, String voiceId) =>
       store.getPlayback(diaryId, voiceId);
-
   Future<PlaybackRecord?> remotePlayback(String diaryId, String voiceId) async {
     final deviceId = await store.getDeviceId();
     final localDevice = await api.fetchPlaybackRecords(
@@ -337,13 +332,11 @@ class SyncManager {
         await api.fetchPlaybackRecords(diaryId: diaryId, voiceId: voiceId);
     return others.isEmpty ? null : others.first;
   }
-
   Future<void> _flushPlayback(Map<String, dynamic> payload, int id) async {
     final saved = await api.savePlayback(PlaybackRecord.fromJson(payload));
     await store.savePlayback(saved, queue: false);
     await store.acknowledgeMutation(id);
   }
-
   Future<void> _flushOutbox() async {
     while (true) {
       final pending = await store.getOutbox();
@@ -424,11 +417,8 @@ class SyncManager {
       await store.acknowledgeMutation(id);
     }
   }
-
   Future<void> flushPending() => _flushOutbox();
-
   Future<int> pendingCount() async => (await store.getOutbox()).length;
-
   Future<List<Diary>> refresh() async {
     final connectivity = await _checkConnectivity();
     if (connectivity.contains(ConnectivityResult.none)) {
@@ -442,7 +432,6 @@ class SyncManager {
         .saveCursor((pull['next_cursor'] as int?) ?? await store.getCursor());
     return diaries;
   }
-
   Future<AudioAsset> ensureAudio(
     Diary diary, {
     String voiceId = '',

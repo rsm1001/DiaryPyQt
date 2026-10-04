@@ -37,6 +37,21 @@ class DiaryDocumentAdapter {
     return file.readAsString(encoding: utf8);
   }
 
+  Future<String?> pickBackup() async => pickJson();
+
+  Future<bool> saveBackup(String data) async {
+    final name =
+        'diary-local-backup-${DateTime.now().toIso8601String().substring(0, 10)}.json';
+    final target = await FlutterFileDialog.saveFile(
+      params: SaveFileDialogParams(
+        data: Uint8List.fromList(utf8.encode(data)),
+        fileName: name,
+        mimeTypesFilter: const ['application/json'],
+      ),
+    );
+    return target != null;
+  }
+
   Future<bool> saveCsv(String data) async {
     final name =
         'diary-export-${DateTime.now().toIso8601String().substring(0, 10)}.csv';
