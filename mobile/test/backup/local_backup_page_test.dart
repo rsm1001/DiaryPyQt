@@ -26,4 +26,22 @@ void main() {
     expect(find.text('从 JSON 导入'), findsOneWidget);
     expect(find.text('从 CSV 导入'), findsOneWidget);
   });
+  testWidgets('English locale translates backup and transfer entry points',
+      (tester) async {
+    final store = LocalStore();
+    final api = DiaryApi(baseUrl: '');
+    addTearDown(api.dispose);
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale('en', 'US'),
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      home: DiaryTransferPage(
+        store: store,
+        sync: SyncManager(store: store, api: api),
+        onImported: () async {},
+      ),
+    ));
+    expect(find.text('Export full local backup'), findsOneWidget);
+    expect(find.text('Import from CSV'), findsOneWidget);
+  });
 }

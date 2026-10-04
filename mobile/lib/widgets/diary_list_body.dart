@@ -152,8 +152,8 @@ class _DiaryListBodyState extends State<DiaryListBody> {
                   DropdownButton<String?>(
                     value: tag,
                     items: [
-                      const DropdownMenuItem<String?>(
-                          value: null, child: Text('全部标签')),
+                      DropdownMenuItem<String?>(
+                          value: null, child: Text(strings.allTags)),
                       ...tags.map((name) => DropdownMenuItem<String?>(
                             value: name,
                             child: Text(name),
@@ -189,7 +189,7 @@ class _DiaryListBodyState extends State<DiaryListBody> {
                             final previewParts = <String>[];
                             if (widget.preferences.showViews) {
                               previewParts.add(
-                                  '${_stageLabel(diary, strings)} ? ${strings.viewed(diary.viewCount)}');
+                                  '${_stageLabel(diary, strings)} \u00b7 ${strings.viewed(diary.viewCount)}');
                             }
                             if (widget.preferences.showTags &&
                                 diary.tags.isNotEmpty) {

@@ -395,6 +395,8 @@ extension AppStringsExtra on AppStrings {
   String get confirmImport =>
       english ? 'Confirm import' : '\u786e\u8ba4\u5bfc\u5165';
   String get import => english ? 'Import' : '\u5bfc\u5165';
+  String get moveToTrash =>
+      english ? 'Move to trash' : '\u79fb\u5165\u56de\u6536\u7ad9';
   String get randomDeleteTitle => english
       ? 'Random deletion candidates'
       : '\u968f\u673a\u5220\u9664\u5019\u9009';

@@ -85,7 +85,7 @@ class _AdvancedSearchDialogState extends State<_AdvancedSearchDialog> {
         (min != null && max != null && min > max) ||
         (_from != null && _to != null && _from!.isAfter(_to!))) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请检查日期与次数范围')),
+        SnackBar(content: Text(AppStrings.of(context).dateRangeInvalid)),
       );
       return;
     }
@@ -135,11 +135,11 @@ class _AdvancedSearchDialogState extends State<_AdvancedSearchDialog> {
             decoration: InputDecoration(labelText: strings.maximumViews),
           ),
           if (tags.isNotEmpty) ...[
-            const Align(
+            Align(
               alignment: Alignment.centerLeft,
               child: Padding(
-                padding: EdgeInsets.only(top: 12),
-                child: Text('标签组合（须包含所有选中标签）'),
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(strings.tagsAllRequired),
               ),
             ),
             Wrap(

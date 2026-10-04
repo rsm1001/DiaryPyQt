@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../localization/app_strings.dart';
+
 class SyncStatusBanner extends StatelessWidget {
   const SyncStatusBanner({
     super.key,
@@ -13,20 +15,19 @@ class SyncStatusBanner extends StatelessWidget {
   final int pendingCount;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: Row(children: [
-          Icon(offline ? Icons.wifi_off : Icons.sync, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(offline
-                ? '已离线，$pendingCount 条记录待同步'
-                : syncing
-                    ? '正在同步，$pendingCount 条记录待处理'
-                    : '$pendingCount 条记录待同步'),
-          ),
-        ]),
-      );
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(children: [
+        Icon(offline ? Icons.wifi_off : Icons.sync, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(strings.syncBanner(offline, syncing, pendingCount)),
+        ),
+      ]),
+    );
+  }
 }
 
 String describeSyncFailure({

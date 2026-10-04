@@ -8,6 +8,7 @@ import 'package:diary_mobile/services/diary_api.dart';
 import 'package:diary_mobile/services/local_store.dart';
 import 'package:diary_mobile/services/sync_manager.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Diary entry(String id, {int views = 4, List<String> tags = const ['生活']}) =>
@@ -78,10 +79,13 @@ void main() {
     addTearDown(service.dispose);
     var changed = 0;
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: RandomDeletionPage(
-      service: service,
-      onChanged: () async => changed++,
-    )));
+          service: service,
+          onChanged: () async => changed++,
+        )));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '5');
     await tester.tap(find.text('应用筛选并抽取'));
@@ -112,10 +116,13 @@ void main() {
     addTearDown(service.dispose);
     var changed = 0;
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: RandomDeletionPage(
-      service: service,
-      onChanged: () async => changed++,
-    )));
+          service: service,
+          onChanged: () async => changed++,
+        )));
     await tester.pumpAndSettle();
     await tester.tap(find.text('应用筛选并抽取'));
     await tester.pumpAndSettle();
@@ -140,10 +147,13 @@ void main() {
     addTearDown(service.dispose);
     var changed = 0;
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: RandomDeletionPage(
-      service: service,
-      onChanged: () async => changed++,
-    )));
+          service: service,
+          onChanged: () async => changed++,
+        )));
     await tester.pumpAndSettle();
     await tester.tap(find.text('应用筛选并抽取'));
     await tester.pumpAndSettle();
@@ -161,5 +171,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('服务器已确认移入回收站。'), findsOneWidget);
     expect(changed, 1);
+  });
+  testWidgets(
+      'English locale labels random deletion without altering candidates',
+      (tester) async {
+    useTallViewport(tester);
+    final service = _MemoryService();
+    addTearDown(service.dispose);
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale('en', 'US'),
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      home: RandomDeletionPage(service: service, onChanged: () async {}),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Random deletion candidates'), findsOneWidget);
+    expect(find.text('Apply filters and draw'), findsOneWidget);
+    await tester.tap(find.text('Apply filters and draw'));
+    await tester.pumpAndSettle();
+    expect(find.text('Move to trash'), findsOneWidget);
+    expect(service.movedIds, isEmpty);
   });
 }

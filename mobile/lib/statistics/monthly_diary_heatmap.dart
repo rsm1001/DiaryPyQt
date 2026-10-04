@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../localization/app_strings.dart';
+
 class MonthlyDiaryHeatmap extends StatelessWidget {
   const MonthlyDiaryHeatmap({
     super.key,
@@ -18,6 +20,7 @@ class MonthlyDiaryHeatmap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final first = DateTime(month.year, month.month);
     final days = DateTime(month.year, month.month + 1, 0).day;
     final offset = first.weekday - 1;
@@ -26,12 +29,10 @@ class MonthlyDiaryHeatmap extends StatelessWidget {
         .fold<int>(0, (max, count) => count > max ? count : max);
     final colors = Theme.of(context).colorScheme;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(serverViews.isEmpty
-          ? '颜色表示本设备新增查看，圆点表示本地缓存日记的创建日期。'
-          : '颜色表示服务器历史查看，粗体数字表示本设备新增查看，圆点表示本地缓存日记。'),
+      Text(strings.heatmapLegend(hasServerHistory: serverViews.isNotEmpty)),
       const SizedBox(height: 8),
       Row(children: [
-        for (final day in ['一', '二', '三', '四', '五', '六', '日'])
+        for (final day in strings.weekdays)
           Expanded(child: Center(child: Text(day))),
       ]),
       GridView.builder(
@@ -57,8 +58,8 @@ class MonthlyDiaryHeatmap extends StatelessWidget {
               : (serverViews.isEmpty ? views : serverCount) / peak;
           final background = Color.lerp(colors.surfaceContainerHighest,
               colors.primaryContainer, intensity)!;
-          final description = '$key：服务器查看 $serverCount 次，本设备新增查看 '
-              '$views 次，缓存日记 $diaries 篇';
+          final description =
+              strings.heatmapDescription(key, serverCount, views, diaries);
           return Tooltip(
             message: description,
             child: Semantics(

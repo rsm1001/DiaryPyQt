@@ -35,6 +35,7 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
   String? _message;
 
   Future<void> _checkLocalIntegrity() async {
+    final strings = AppStrings.of(context);
     if (_busy) return;
     setState(() => _busy = true);
     try {
@@ -43,8 +44,8 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
       final conflicts = (await widget.store.getConflicts()).length;
       if (mounted) {
         setState(() => _message = healthy
-            ? '本地数据库完整性检查通过；待同步 $pending 条，待审核冲突 $conflicts 条。'
-            : '本地数据库完整性检查未通过，请先导出备份并停止写入。');
+            ? strings.integrityPassed(pending, conflicts)
+            : strings.integrityUnhealthy);
       }
     } catch (error, stack) {
       developer.log(
@@ -53,13 +54,14 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
         error: error,
         stackTrace: stack,
       );
-      if (mounted) setState(() => _message = '本地数据库完整性检查失败。');
+      if (mounted) setState(() => _message = strings.integrityCheckFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _backupLocal() async {
+    final strings = AppStrings.of(context);
     if (_busy) return;
     setState(() => _busy = true);
     try {
@@ -67,8 +69,8 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
       final saved = await widget.documents.saveBackup(backup.encode());
       if (mounted && saved) {
         final data = backup.payload['data'] as Map<String, dynamic>;
-        setState(
-            () => _message = '已导出本地备份：${(data['diaries'] as List).length} 篇日记');
+        setState(() => _message =
+            strings.backupExported((data['diaries'] as List).length));
       }
     } catch (error, stack) {
       developer.log(
@@ -77,13 +79,14 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
         error: error.runtimeType,
         stackTrace: stack,
       );
-      if (mounted) setState(() => _message = '本地备份导出失败，请检查文件权限。');
+      if (mounted) setState(() => _message = strings.backupExportFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _restoreLocalBackup() async {
+    final strings = AppStrings.of(context);
     if (_busy) return;
     setState(() => _busy = true);
     var restored = false;
@@ -97,22 +100,23 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('恢复本地备份？'),
-          content: Text(
-            '备份预览：${(data['diaries'] as List).length} 篇日记，'
-            '${(data['outbox'] as List).length} 条待同步任务，'
-            '${(data['conflicts'] as List).length} 条冲突，'
-            '${(data['playback_records'] as List).length} 条播放记录。'
-            '${pending ? '当前设备有未同步任务或待审核冲突！' : ''}'
-            '恢复会替换本地数据，只能用于原服务器；备份文件包含明文日记，请妥善保管。是否继续？',
-          ),
+          title: Text(strings.confirmRestoreBackup),
+          content: Text(strings.restorePreview(
+            (data['diaries'] as List).length,
+            (data['outbox'] as List).length,
+            (data['conflicts'] as List).length,
+            (data['playback_records'] as List).length,
+            pending,
+          )),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('取消')),
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(strings.cancel),
+            ),
             FilledButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('确认恢复')),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(strings.confirmRestore),
+            ),
           ],
         ),
       );
@@ -121,8 +125,10 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
       restored = true;
       await widget.onImported();
       if (mounted) {
-        setState(() => _message = '恢复完成：${counts['diaries']} 篇日记，'
-            '${counts['outbox']} 条待同步任务，${counts['conflicts']} 条冲突。');
+        setState(() => _message = strings.restoreCompleted(
+            counts['diaries'] ?? 0,
+            counts['outbox'] ?? 0,
+            counts['conflicts'] ?? 0));
       }
     } catch (error, stack) {
       developer.log(
@@ -133,7 +139,7 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
       );
       if (mounted) {
         setState(() => _message =
-            restored ? '本地数据已恢复，但列表刷新失败，请手动刷新。' : '本地备份恢复失败，原有本地数据已保留。');
+            restored ? strings.restoreRefreshFailed : strings.restoreFailed);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -141,6 +147,7 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
   }
 
   Future<void> _export({bool csv = false}) async {
+    final strings = AppStrings.of(context);
     if (_busy) return;
     setState(() => _busy = true);
     try {
@@ -157,13 +164,14 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
           name: 'diary.transfer',
           error: error,
           stackTrace: stack);
-      if (mounted) setState(() => _message = '导出失败，请检查文件权限');
+      if (mounted) setState(() => _message = strings.exportFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _import({bool csv = false}) async {
+    final strings = AppStrings.of(context);
     if (_busy) return;
     setState(() => _busy = true);
     try {
@@ -182,21 +190,23 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('确认导入'),
-          content: Text(
-            '可新建 ${preview.entries.length} 篇，跳过 ${preview.skipped} 篇重复，错误 ${preview.errors} 篇。\n'
-            '仅导入日期、正文和标签；历史查看次数不会被重复导入。'
-            '${preview.errors > 0 ? '\n请修复错误行后重新导入，整批数据尚未写入。' : ''}',
-          ),
+          title: Text(strings.confirmImport),
+          content: Text(strings.importPreview(
+            preview.entries.length,
+            preview.skipped,
+            preview.errors,
+          )),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('取消')),
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(strings.cancel),
+            ),
             FilledButton(
-                onPressed: preview.errors > 0 || preview.entries.isEmpty
-                    ? null
-                    : () => Navigator.pop(dialogContext, true),
-                child: const Text('导入')),
+              onPressed: preview.errors > 0 || preview.entries.isEmpty
+                  ? null
+                  : () => Navigator.pop(dialogContext, true),
+              child: Text(strings.import),
+            ),
           ],
         ),
       );
@@ -212,7 +222,7 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
           name: 'diary.transfer',
           error: error,
           stackTrace: stack);
-      if (mounted) setState(() => _message = '导入失败：请检查文件格式和大小');
+      if (mounted) setState(() => _message = strings.importFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

@@ -4,6 +4,7 @@ import 'package:diary_mobile/widgets/diary_list_body.dart';
 import 'package:diary_mobile/widgets/random_playback_panel.dart';
 import 'package:diary_mobile/widgets/sync_status_banner.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const snapshot = PlaybackSnapshot(
@@ -36,12 +37,18 @@ void main() {
 
   testWidgets('离线和待同步任务状态保持可见', (tester) async {
     await tester.pumpWidget(const MaterialApp(
+      locale: Locale('zh', 'CN'),
+      supportedLocales: [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       home: Scaffold(
         body: SyncStatusBanner(offline: true, syncing: false, pendingCount: 2),
       ),
     ));
     expect(find.text('已离线，2 条记录待同步'), findsOneWidget);
     await tester.pumpWidget(const MaterialApp(
+      locale: Locale('zh', 'CN'),
+      supportedLocales: [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       home: Scaffold(
         body: SyncStatusBanner(offline: false, syncing: true, pendingCount: 2),
       ),
@@ -54,6 +61,9 @@ void main() {
     var played = 0;
     String? search;
     await tester.pumpWidget(MaterialApp(
+      locale: Locale('zh', 'CN'),
+      supportedLocales: [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       home: Scaffold(
         body: DiaryListBody(
           diaries: Future.value([sample()]),
@@ -85,6 +95,9 @@ void main() {
     Future<void> start() async => starts++;
     Future<void> stop() async => stops++;
     await tester.pumpWidget(MaterialApp(
+      locale: Locale('zh', 'CN'),
+      supportedLocales: [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       home: Scaffold(
         body: RandomPlaybackPanel(
           active: false,
@@ -99,6 +112,9 @@ void main() {
     await tester.tap(find.text('开始随机连续播放'));
     expect(starts, 1);
     await tester.pumpWidget(MaterialApp(
+      locale: Locale('zh', 'CN'),
+      supportedLocales: [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       home: Scaffold(
         body: RandomPlaybackPanel(
           active: true,
@@ -126,6 +142,9 @@ void main() {
   testWidgets('???????????????', (tester) async {
     String? selectedId;
     await tester.pumpWidget(MaterialApp(
+      locale: Locale('zh', 'CN'),
+      supportedLocales: [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       home: Scaffold(
         body: DiaryListBody(
           diaries: Future.value([sample()]),
@@ -147,5 +166,29 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byType(Checkbox));
     expect(selectedId, 'entry-id');
+  });
+  testWidgets('English locale shows sync and playback controls',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale('en', 'US'),
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      home: Scaffold(
+        body: Column(children: [
+          const SyncStatusBanner(
+              offline: true, syncing: false, pendingCount: 2),
+          RandomPlaybackPanel(
+            active: false,
+            current: null,
+            candidateCount: 0,
+            snapshot: snapshot,
+            onStart: () async {},
+            onStop: () async {},
+          ),
+        ]),
+      ),
+    ));
+    expect(find.text('Offline, 2 records pending sync'), findsOneWidget);
+    expect(find.text('Start random continuous playback'), findsOneWidget);
   });
 }

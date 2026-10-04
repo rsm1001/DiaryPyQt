@@ -104,9 +104,9 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
             onChanged: (value) =>
                 _update(_preferences.copyWith(sortDescending: value)),
           ),
-          const Padding(
-            padding: EdgeInsets.only(top: 12),
-            child: Text('这些设置只影响本机界面，不会修改日记、查看统计或同步任务。'),
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(strings.preferencesNote),
           ),
         ],
       ),

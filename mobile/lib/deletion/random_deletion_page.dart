@@ -2,6 +2,7 @@ import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 
+import '../localization/app_strings.dart';
 import '../models/diary.dart';
 import '../services/local_store.dart';
 import '../services/sync_manager.dart';
@@ -76,7 +77,9 @@ class _RandomDeletionPageState extends State<RandomDeletionPage> {
         error: error,
         stackTrace: stack,
       );
-      if (mounted) setState(() => _message = '本地候选读取失败，请稍后重试。');
+      if (mounted) {
+        setState(() => _message = AppStrings.of(context).localCandidateFailed);
+      }
     }
   }
 
@@ -114,7 +117,7 @@ class _RandomDeletionPageState extends State<RandomDeletionPage> {
     if ((minText.isNotEmpty && min == null) ||
         (maxText.isNotEmpty && max == null) ||
         !filters.isValid) {
-      setState(() => _message = '查看次数请输入非负整数，且最少不大于最多。');
+      setState(() => _message = AppStrings.of(context).invalidViewRange);
       return;
     }
     _filters = filters;
@@ -124,6 +127,7 @@ class _RandomDeletionPageState extends State<RandomDeletionPage> {
 
   Future<void> _draw() async {
     if (_busy || _loading) return;
+    final strings = AppStrings.of(context);
     setState(() {
       _loading = true;
       _candidate = null;
@@ -138,8 +142,9 @@ class _RandomDeletionPageState extends State<RandomDeletionPage> {
       setState(() {
         _candidate = diary;
         if (diary == null) {
-          _message =
-              _seenIds.isEmpty ? '没有符合筛选条件的可删除日记。' : '当前筛选的候选已看完，可重置抽取记录。';
+          _message = _seenIds.isEmpty
+              ? strings.noDeletionCandidates
+              : strings.candidatesExhausted;
         } else {
           _seenIds.add(diary.id);
         }
@@ -151,31 +156,33 @@ class _RandomDeletionPageState extends State<RandomDeletionPage> {
         error: error,
         stackTrace: stack,
       );
-      if (mounted) setState(() => _message = '本地抽取失败，请检查缓存后重试。');
+      if (mounted) setState(() => _message = strings.deletionDrawFailed);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _deleteCandidate() async {
+    final strings = AppStrings.of(context);
     final candidate = _candidate;
     if (_busy || candidate == null) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('确认移入回收站？'),
-        content: Text('日期：${candidate.date}\n'
-            '查看次数：${candidate.viewCount}\n'
-            '标签：${candidate.tags.isEmpty ? '无' : candidate.tags.join('、')}\n\n'
-            '${_preview(candidate.content)}\n\n'
-            '此操作不会永久删除，服务器未确认时只保存待同步任务。'),
+        title: Text(strings.confirmMoveTrash),
+        content: Text(strings.deletionPreview(
+          candidate.date,
+          candidate.viewCount,
+          candidate.tags.isEmpty ? strings.none : candidate.tags.join('\u3001'),
+          _preview(candidate.content),
+        )),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('取消')),
+              child: Text(strings.cancel)),
           FilledButton(
               onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('移入回收站')),
+              child: Text(strings.moveToTrash)),
         ],
       ),
     );
@@ -187,9 +194,9 @@ class _RandomDeletionPageState extends State<RandomDeletionPage> {
       setState(() {
         _candidate = null;
         _message = switch (outcome) {
-          RandomDeletionResult.confirmed => '服务器已确认移入回收站。',
-          RandomDeletionResult.queued => '删除任务已保存待同步，服务器尚未确认。',
-          RandomDeletionResult.conflict => '版本冲突：已保留删除意图，请到同步冲突审核处理；服务器未删除。',
+          RandomDeletionResult.confirmed => strings.confirmedTrash,
+          RandomDeletionResult.queued => strings.queuedTrash,
+          RandomDeletionResult.conflict => strings.conflictTrash,
         };
       });
       try {
@@ -202,7 +209,7 @@ class _RandomDeletionPageState extends State<RandomDeletionPage> {
           stackTrace: stack,
         );
         if (mounted) {
-          setState(() => _message = '删除状态已保存，但列表刷新失败，请手动刷新。');
+          setState(() => _message = strings.deletionRefreshFailed);
         }
       }
     } catch (error, stack) {
@@ -213,7 +220,7 @@ class _RandomDeletionPageState extends State<RandomDeletionPage> {
         stackTrace: stack,
       );
       if (mounted) {
-        setState(() => _message = '删除未确认成功；请核对日记和同步状态后重试。');
+        setState(() => _message = strings.deletionUnconfirmed);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -227,119 +234,138 @@ class _RandomDeletionPageState extends State<RandomDeletionPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('随机删除候选')),
-        body: ListView(padding: const EdgeInsets.all(16), children: [
-          const Text('候选来自本设备缓存，不代表服务器全部日记。仅提交移入回收站，不会永久删除。'),
-          const SizedBox(height: 12),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(_before == null
-                ? '创建日期不限'
-                : '创建日期不晚于 ${_before!.toIso8601String().substring(0, 10)}'),
-            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (_before != null)
-                IconButton(
-                    tooltip: '清除日期条件',
-                    onPressed: _busy
-                        ? null
-                        : () {
-                            setState(() => _before = null);
-                            _filterChanged();
-                          },
-                    icon: const Icon(Icons.close)),
-              const Icon(Icons.date_range),
-            ]),
-            onTap: _busy ? null : _pickDate,
-          ),
-          Row(children: [
-            Expanded(
-                child: TextField(
-                    controller: _minController,
-                    keyboardType: TextInputType.number,
-                    onChanged: (_) => _filterChanged(),
-                    decoration: const InputDecoration(labelText: '最少查看次数'))),
-            const SizedBox(width: 12),
-            Expanded(
-                child: TextField(
-                    controller: _maxController,
-                    keyboardType: TextInputType.number,
-                    onChanged: (_) => _filterChanged(),
-                    decoration: const InputDecoration(labelText: '最多查看次数'))),
-          ]),
-          if (_tags.isNotEmpty)
-            DropdownButton<String?>(
-              value: _tags.contains(_tag) ? _tag : null,
-              items: [
-                const DropdownMenuItem<String?>(
-                    value: null, child: Text('全部标签')),
-                ..._tags.map((tag) =>
-                    DropdownMenuItem<String?>(value: tag, child: Text(tag))),
-              ],
-              onChanged: _busy
-                  ? null
-                  : (value) {
-                      setState(() => _tag = value);
-                      _filterChanged();
-                    },
-            ),
-          const SizedBox(height: 12),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            FilledButton.icon(
-              onPressed: _busy || _loading ? null : _applyFilters,
-              icon: const Icon(Icons.filter_alt),
-              label: const Text('应用筛选并抽取'),
-            ),
-            OutlinedButton(
-                onPressed:
-                    _busy || _loading || _candidate == null ? null : _draw,
-                child: const Text('重新抽取')),
-            TextButton(
-                onPressed: _busy || _loading || _seenIds.isEmpty
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    return Scaffold(
+      appBar: AppBar(title: Text(strings.randomDeleteTitle)),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        Text(strings.randomDeleteNote),
+        const SizedBox(height: 12),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(_before == null
+              ? strings.noDateLimit
+              : strings
+                  .dateBefore(_before!.toIso8601String().substring(0, 10))),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (_before != null)
+              IconButton(
+                tooltip: strings.clearDateFilter,
+                onPressed: _busy
                     ? null
                     : () {
-                        _seenIds.clear();
-                        _draw();
+                        setState(() => _before = null);
+                        _filterChanged();
                       },
-                child: const Text('重置抽取记录')),
+                icon: const Icon(Icons.close),
+              ),
+            const Icon(Icons.date_range),
           ]),
-          if (_loading || _busy) const LinearProgressIndicator(),
-          if (_message != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Text(_message!),
+          onTap: _busy ? null : _pickDate,
+        ),
+        Row(children: [
+          Expanded(
+            child: TextField(
+              controller: _minController,
+              keyboardType: TextInputType.number,
+              onChanged: (_) => _filterChanged(),
+              decoration: InputDecoration(labelText: strings.minimumViews),
             ),
-          if (_candidate != null) ...[
-            const SizedBox(height: 16),
-            Card(
-                child: Padding(
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: TextField(
+              controller: _maxController,
+              keyboardType: TextInputType.number,
+              onChanged: (_) => _filterChanged(),
+              decoration: InputDecoration(labelText: strings.maximumViews),
+            ),
+          ),
+        ]),
+        if (_tags.isNotEmpty)
+          DropdownButton<String?>(
+            value: _tags.contains(_tag) ? _tag : null,
+            items: [
+              DropdownMenuItem<String?>(
+                value: null,
+                child: Text(strings.allTagsOption),
+              ),
+              ..._tags.map((tag) => DropdownMenuItem<String?>(
+                    value: tag,
+                    child: Text(tag),
+                  )),
+            ],
+            onChanged: _busy
+                ? null
+                : (value) {
+                    setState(() => _tag = value);
+                    _filterChanged();
+                  },
+          ),
+        const SizedBox(height: 12),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          FilledButton.icon(
+            onPressed: _busy || _loading ? null : _applyFilters,
+            icon: const Icon(Icons.filter_alt),
+            label: Text(strings.applyAndDraw),
+          ),
+          OutlinedButton(
+            onPressed: _busy || _loading || _candidate == null ? null : _draw,
+            child: Text(strings.redraw),
+          ),
+          TextButton(
+            onPressed: _busy || _loading || _seenIds.isEmpty
+                ? null
+                : () {
+                    _seenIds.clear();
+                    _draw();
+                  },
+            child: Text(strings.resetDraw),
+          ),
+        ]),
+        if (_loading || _busy) const LinearProgressIndicator(),
+        if (_message != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Text(_message!),
+          ),
+        if (_candidate != null) ...[
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('待确认候选',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    Text('日期：${_candidate!.date}'),
-                    Text('查看次数：${_candidate!.viewCount}'),
-                    Text(
-                        '标签：${_candidate!.tags.isEmpty ? '无' : _candidate!.tags.join('、')}'),
-                    Text('正文摘要：${_preview(_candidate!.content)}'),
-                    const SizedBox(height: 12),
-                    Row(children: [
-                      TextButton(
-                          onPressed: _busy
-                              ? null
-                              : () => setState(() => _candidate = null),
-                          child: const Text('取消')),
-                      const Spacer(),
-                      FilledButton(
-                          onPressed: _busy ? null : _deleteCandidate,
-                          child: const Text('移入回收站')),
-                    ]),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(strings.pendingCandidate,
+                      style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Text(strings.dateLabelShort(_candidate!.date)),
+                  Text(strings.viewsLabel(_candidate!.viewCount)),
+                  Text(strings.tagsValue(_candidate!.tags.isEmpty
+                      ? strings.none
+                      : _candidate!.tags.join('?'))),
+                  Text(strings.summaryValue(_preview(_candidate!.content))),
+                  const SizedBox(height: 12),
+                  Row(children: [
+                    TextButton(
+                      onPressed: _busy
+                          ? null
+                          : () => setState(() => _candidate = null),
+                      child: Text(strings.cancel),
+                    ),
+                    const Spacer(),
+                    FilledButton(
+                      onPressed: _busy ? null : _deleteCandidate,
+                      child: Text(strings.moveToTrash),
+                    ),
                   ]),
-            )),
-          ],
-        ]),
-      );
+                ],
+              ),
+            ),
+          ),
+        ],
+      ]),
+    );
+  }
 }

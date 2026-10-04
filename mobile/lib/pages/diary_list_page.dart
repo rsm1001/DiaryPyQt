@@ -10,6 +10,7 @@ import '../conflicts/conflict_review_page.dart';
 import '../models/app_preferences.dart';
 import '../models/audio_asset.dart';
 import '../models/diary.dart';
+import '../playback/playback_resume_dialog.dart';
 import 'advanced_search_dialog.dart';
 import 'batch_tag_dialog.dart';
 import 'diary_editor_page.dart';
@@ -154,7 +155,8 @@ class _DiaryListPageState extends State<DiaryListPage>
       }
       if (url != _serverUrl && await _sync.pendingCount() > 0) {
         if (mounted) {
-          setState(() => _errorMessage = '还有未同步的查看或编辑记录，请先同步或处理冲突，不可切换服务器。');
+          setState(
+              () => _errorMessage = AppStrings.of(context).pendingServerChange);
         }
         candidate.dispose();
         return;
@@ -184,8 +186,8 @@ class _DiaryListPageState extends State<DiaryListPage>
       await _syncTrigger.request();
       previous.dispose();
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('日记服务器连接已验证')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(AppStrings.of(context).connectionVerified)));
       }
     } catch (error, stack) {
       developer.log(
@@ -199,9 +201,9 @@ class _DiaryListPageState extends State<DiaryListPage>
           _requiresServerCredentials =
               error is DiaryApiException && error.statusCode == 401;
           _errorMessage = _requiresServerCredentials
-              ? describeSyncFailure(
+              ? AppStrings.of(context).syncFailure(
                   conflict: false, pending: _pendingCount, statusCode: 401)
-              : '连接校验失败，请检查服务器地址与密码。';
+              : AppStrings.of(context).connectionValidationFailed;
         });
       }
       if (!identical(candidate, _api)) candidate.dispose();
@@ -233,7 +235,7 @@ class _DiaryListPageState extends State<DiaryListPage>
           final statusCode =
               error is DiaryApiException ? error.statusCode : null;
           _requiresServerCredentials = statusCode == 401 || statusCode == 403;
-          _errorMessage = describeSyncFailure(
+          _errorMessage = AppStrings.of(context).syncFailure(
               conflict: error is DiaryApiException && error.conflict,
               pending: pending,
               statusCode: statusCode);
@@ -320,22 +322,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       return null;
     }
     if (!mounted) return null;
-    final resume = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('恢复上次播放？'),
-        content: Text('上次在第 ${record!.roundNumber} 遍播放到 '
-            '${record.positionMs ~/ 1000} 秒，状态为“${record.status}”。'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('从头播放')),
-          FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('继续播放')),
-        ],
-      ),
-    );
+    final resume = await showPlaybackResumeDialog(context, record);
     return resume == true
         ? (record.roundNumber, Duration(milliseconds: record.positionMs))
         : null;
@@ -425,7 +412,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       stackTrace: stack,
     );
     if (mounted && _errorMessage == null) {
-      setState(() => _errorMessage = '本地同步状态无法更新，请稍后重试。');
+      setState(() => _errorMessage = AppStrings.of(context).syncStateFailed);
     }
   }
 
@@ -462,20 +449,21 @@ class _DiaryListPageState extends State<DiaryListPage>
 
   Future<void> _batchDeleteSelected() async {
     if (_batchBusy || _selectedDiaryIds.isEmpty) return;
+    final strings = AppStrings.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('\u6279\u91cf\u5220\u9664\u65e5\u8bb0'),
-        content: Text(
-            '\u5c06\u9009\u4e2d\u7684 ${_selectedDiaryIds.length} \u7bc7\u65e5\u8bb0\u79fb\u5165\u56de\u6536\u7ad9\uff0c\u662f\u5426\u7ee7\u7eed\uff1f'),
+        title: Text(strings.batchDeleteDiariesTitle),
+        content:
+            Text(strings.batchDeleteDiariesConfirm(_selectedDiaryIds.length)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('\u53d6\u6d88'),
+            child: Text(strings.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('\u5220\u9664'),
+            child: Text(strings.deleteAction),
           ),
         ],
       ),
@@ -506,8 +494,8 @@ class _DiaryListPageState extends State<DiaryListPage>
         stackTrace: stack,
       );
       if (mounted) {
-        setState(() => _errorMessage =
-            '\u6279\u91cf\u5220\u9664\u672a\u5b8c\u6210\uff0c\u5df2\u4fdd\u7559\u672a\u5904\u7406\u65e5\u8bb0');
+        setState(
+            () => _errorMessage = AppStrings.of(context).batchDeleteFailed);
       }
     } finally {
       if (mounted) setState(() => _batchBusy = false);
@@ -532,8 +520,7 @@ class _DiaryListPageState extends State<DiaryListPage>
       setState(() {
         _selectionMode = false;
         _selectedDiaryIds.clear();
-        _errorMessage =
-            '\u5df2\u66f4\u65b0 $changed \u7bc7\u65e5\u8bb0\u7684\u6807\u7b7e';
+        _errorMessage = AppStrings.of(context).batchTagsUpdated(changed);
       });
       await _refreshLocalList();
       await _updatePendingCount();
@@ -545,8 +532,7 @@ class _DiaryListPageState extends State<DiaryListPage>
           error: error,
           stackTrace: stack);
       if (mounted) {
-        setState(() => _errorMessage =
-            '\u6807\u7b7e\u66f4\u65b0\u672a\u63d0\u4ea4\uff0c\u5df2\u4fdd\u7559\u9009\u62e9\u4f9b\u91cd\u8bd5');
+        setState(() => _errorMessage = AppStrings.of(context).batchTagsFailed);
       }
     } finally {
       if (mounted) setState(() => _batchBusy = false);
@@ -581,7 +567,7 @@ class _DiaryListPageState extends State<DiaryListPage>
     if (!mounted || request != _playRequest) return false;
     setState(() {
       _playingDiaryId = diary.id;
-      _audioStatus = '正在准备音频';
+      _audioStatus = AppStrings.of(context).preparingPlayback;
       _errorMessage = null;
     });
     var completed = false;
@@ -615,10 +601,10 @@ class _DiaryListPageState extends State<DiaryListPage>
       if (mounted && request == _playRequest) {
         await _playback.stop();
         if (!mounted || request != _playRequest) return false;
-        setState(() => _errorMessage = error is StateError &&
-                error.message == 'Audio playback stalled'
-            ? '\u97f3\u9891\u64ad\u653e\u65e0\u8fdb\u5ea6\uff0c\u8bf7\u68c0\u67e5\u8bbe\u5907\u97f3\u9891\u89e3\u7801\u6216\u91cd\u65b0\u540c\u6b65\u97f3\u9891'
-            : '\u97f3\u9891\u65e0\u6cd5\u64ad\u653e\uff0c\u5c06\u8df3\u8fc7\u5f53\u524d\u65e5\u8bb0\u5e76\u7ee7\u7eed\u64ad\u653e');
+        setState(() => _errorMessage =
+            error is StateError && error.message == 'Audio playback stalled'
+                ? AppStrings.of(context).playbackStalled
+                : AppStrings.of(context).playbackFailed);
       }
     } finally {
       if (mounted && request == _playRequest && _playingDiaryId == diary.id) {
@@ -704,8 +690,8 @@ class _DiaryListPageState extends State<DiaryListPage>
         options: _searchOptions);
     if (candidates.isEmpty) {
       if (mounted) {
-        setState(() => _errorMessage =
-            '\u5f53\u524d\u7b5b\u9009\u6ca1\u6709\u53ef\u968f\u673a\u64ad\u653e\u7684\u65e5\u8bb0');
+        setState(() =>
+            _errorMessage = AppStrings.of(context).noRandomPlaybackCandidate);
       }
       return;
     }
@@ -921,12 +907,16 @@ class _DiaryListPageState extends State<DiaryListPage>
                         value: 'transfer', child: Text(strings.transfer)),
                     PopupMenuItem(value: 'tags', child: Text(strings.tags)),
                     PopupMenuItem(value: 'trash', child: Text(strings.trash)),
-                    PopupMenuItem(value: 'voices', child: Text('语音包选择')),
-                    PopupMenuItem(value: 'conflicts', child: Text('同步冲突审核')),
-                    PopupMenuItem(value: 'random_delete', child: Text('随机删除')),
+                    PopupMenuItem(value: 'voices', child: Text(strings.voices)),
+                    PopupMenuItem(
+                        value: 'conflicts', child: Text(strings.conflicts)),
+                    PopupMenuItem(
+                        value: 'random_delete',
+                        child: Text(strings.randomDelete)),
                     PopupMenuItem(
                         value: 'statistics', child: Text(strings.statistics)),
-                    PopupMenuItem(value: 'settings', child: Text('主题、语言与列表显示')),
+                    PopupMenuItem(
+                        value: 'settings', child: Text(strings.preferences)),
                     PopupMenuItem(
                         value: 'server', child: Text(strings.serverSettings)),
                   ],
@@ -934,7 +924,7 @@ class _DiaryListPageState extends State<DiaryListPage>
               ],
       ),
       floatingActionButton: FloatingActionButton(
-        tooltip: '新建日记',
+        tooltip: strings.newDiary,
         onPressed: () => _openEditor(),
         child: const Icon(Icons.add),
       ),
@@ -945,7 +935,9 @@ class _DiaryListPageState extends State<DiaryListPage>
                 onPressed: _requiresServerCredentials
                     ? _configureServer
                     : _syncTrigger.request,
-                child: Text(_requiresServerCredentials ? '服务器设置' : '重试'))
+                child: Text(_requiresServerCredentials
+                    ? strings.serverSettings
+                    : strings.retry))
           ]),
         if (_syncing || _offline || _pendingCount > 0)
           SyncStatusBanner(
