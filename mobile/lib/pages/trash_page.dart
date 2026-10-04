@@ -4,14 +4,20 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../localization/app_strings.dart';
 import '../models/diary.dart';
 import '../services/diary_api.dart';
 import '../services/sync_manager.dart';
 import '../trash/trash_batch.dart';
 
 class TrashPage extends StatefulWidget {
-  const TrashPage(
-      {super.key, required this.api, required this.sync, this.onChanged});
+  const TrashPage({
+    super.key,
+    required this.api,
+    required this.sync,
+    this.onChanged,
+  });
+
   final DiaryApi api;
   final SyncManager sync;
   final Future<void> Function()? onChanged;
@@ -49,11 +55,14 @@ class _TrashPageState extends State<TrashPage> {
       });
     } catch (error, stack) {
       developer.log(
-          '回收站读取失败 request_id=${DateTime.now().microsecondsSinceEpoch}',
-          name: 'diary.trash',
-          error: error,
-          stackTrace: stack);
-      if (mounted) setState(() => _error = '回收站读取失败；已保留当前列表，请检查网络后重试。');
+        'trash_load_failed request_id=${DateTime.now().microsecondsSinceEpoch}',
+        name: 'diary.trash',
+        error: error,
+        stackTrace: stack,
+      );
+      if (mounted) {
+        setState(() => _error = AppStrings.of(context).trashReadError);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -81,58 +90,70 @@ class _TrashPageState extends State<TrashPage> {
         _selecting = false;
       });
 
-  Future<bool> _confirm(String title, String message) async =>
-      await showDialog<bool>(
+  Future<bool> _confirm(String title, String message) async {
+    final strings = AppStrings.of(context);
+    return await showDialog<bool>(
           context: context,
-          builder: (dialogContext) =>
-              AlertDialog(title: Text(title), content: Text(message), actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(dialogContext, false),
-                    child: const Text('取消')),
-                FilledButton(
-                    onPressed: () => Navigator.pop(dialogContext, true),
-                    child: const Text('继续')),
-              ])) ??
-      false;
+          builder: (dialogContext) => AlertDialog(
+            title: Text(title),
+            content: Text(message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: Text(strings.cancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: Text(strings.confirmContinue),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
 
   Future<bool> _confirmClear() async {
+    final strings = AppStrings.of(context);
     if (!await _confirm(
-        '清空整个回收站？', '将永久删除当前列表中的 ${_items.length} 篇日记。此操作不可恢复，是否继续？')) {
+        strings.clearTrashTitle, strings.clearTrashConfirm(_items.length))) {
       return false;
     }
     if (!mounted) return false;
     var typed = false;
     return await showDialog<bool>(
-            context: context,
-            builder: (dialogContext) => StatefulBuilder(
-                builder: (context, refresh) => AlertDialog(
-                      title: const Text('再次确认永久删除'),
-                      content: TextField(
-                        decoration:
-                            const InputDecoration(labelText: '请输入“清空”以确认'),
-                        onChanged: (value) =>
-                            refresh(() => typed = value.trim() == '清空'),
-                      ),
-                      actions: [
-                        TextButton(
-                            onPressed: () =>
-                                Navigator.pop(dialogContext, false),
-                            child: const Text('取消')),
-                        FilledButton(
-                            onPressed: typed
-                                ? () => Navigator.pop(dialogContext, true)
-                                : null,
-                            child: const Text('永久清空')),
-                      ],
-                    ))) ??
+          context: context,
+          builder: (dialogContext) => StatefulBuilder(
+            builder: (context, refresh) => AlertDialog(
+              title: Text(strings.confirmAgain),
+              content: TextField(
+                decoration:
+                    InputDecoration(labelText: strings.typeClearToConfirm),
+                onChanged: (value) => refresh(() => typed = value.trim() ==
+                    (strings.english ? 'EMPTY' : '\u6e05\u7a7a')),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: Text(strings.cancel),
+                ),
+                FilledButton(
+                  onPressed:
+                      typed ? () => Navigator.pop(dialogContext, true) : null,
+                  child: Text(strings.permanentlyEmpty),
+                ),
+              ],
+            ),
+          ),
+        ) ??
         false;
   }
 
   Future<TrashOutcome> _restore(Diary diary) async {
+    final strings = AppStrings.of(context);
     await widget.sync.restoreDiary(diary);
     final conflicts = await widget.sync.getConflicts();
     if (conflicts.any((item) => item.diaryId == diary.id)) {
-      throw StateError('恢复版本冲突，等待人工审核');
+      throw StateError(strings.restoreConflict);
     }
     final pending = await widget.sync.store.getOutbox();
     if (pending.any(
@@ -142,14 +163,18 @@ class _TrashPageState extends State<TrashPage> {
     return TrashOutcome.completed;
   }
 
-  Future<void> _run(List<Diary> diaries,
-      {required bool purge, bool clearAll = false}) async {
+  Future<void> _run(
+    List<Diary> diaries, {
+    required bool purge,
+    bool clearAll = false,
+  }) async {
     if (_busy || _loading || diaries.isEmpty) return;
+    final strings = AppStrings.of(context);
     if (purge &&
         !await (clearAll
             ? _confirmClear()
-            : _confirm(
-                '确认永久删除？', '将永久删除 ${diaries.length} 篇日记，无法恢复。请确认没有选错。'))) {
+            : _confirm(strings.confirmPurgeTitle,
+                strings.purgeConfirm(diaries.length)))) {
       return;
     }
     if (!mounted) return;
@@ -158,24 +183,28 @@ class _TrashPageState extends State<TrashPage> {
       _error = null;
       _result = null;
     });
-    final result = await const TrashBatchService().run(diaries, (diary) async {
-      if (!purge) return _restore(diary);
-      await widget.api.permanentlyDeleteDiary(diary);
-      return TrashOutcome.completed;
-    },
-        onFailure: (diary, error) => developer.log(
-            '回收站单篇操作失败 request_id=${DateTime.now().microsecondsSinceEpoch} diary_id=${diary.id}',
-            name: 'diary.trash',
-            error: error),
-        isInterrupted: (error) =>
-            error is SocketException ||
-            error is TimeoutException ||
-            error is DiaryApiException && error.network,
-        isUnsupported: purge
-            ? (error) =>
-                error is DiaryApiException &&
-                (error.statusCode == 404 || error.statusCode == 405)
-            : null);
+    final result = await const TrashBatchService().run(
+      diaries,
+      (diary) async {
+        if (!purge) return _restore(diary);
+        await widget.api.permanentlyDeleteDiary(diary);
+        return TrashOutcome.completed;
+      },
+      onFailure: (diary, error) => developer.log(
+        'trash_item_failed request_id=${DateTime.now().microsecondsSinceEpoch} diary_id=${diary.id}',
+        name: 'diary.trash',
+        error: error,
+      ),
+      isInterrupted: (error) =>
+          error is SocketException ||
+          error is TimeoutException ||
+          error is DiaryApiException && error.network,
+      isUnsupported: purge
+          ? (error) =>
+              error is DiaryApiException &&
+              (error.statusCode == 404 || error.statusCode == 405)
+          : null,
+    );
     if (!mounted) return;
     setState(() {
       _result = result;
@@ -186,9 +215,9 @@ class _TrashPageState extends State<TrashPage> {
       if (_selected.isEmpty) _selecting = false;
       _busy = false;
       if (result.unsupportedVersionedDelete) {
-        _error = '版本校验删除接口不可用或日记已被移除；未继续删除其余项目，请检查服务器版本。';
+        _error = strings.unsupportedDelete;
       } else if (result.unprocessed > 0) {
-        _error = '操作中断或已离线排队，其余项目未处理；请稍后重试。';
+        _error = strings.interruptedTrash;
       }
     });
     if (result.completed > 0 && !purge) {
@@ -196,45 +225,53 @@ class _TrashPageState extends State<TrashPage> {
         await widget.onChanged?.call();
       } catch (error, stack) {
         developer.log(
-            '回收站恢复后列表刷新失败 request_id=${DateTime.now().microsecondsSinceEpoch}',
-            name: 'diary.trash',
-            error: error,
-            stackTrace: stack);
+          'trash_refresh_failed request_id=${DateTime.now().microsecondsSinceEpoch}',
+          name: 'diary.trash',
+          error: error,
+          stackTrace: stack,
+        );
       }
     }
     developer.log(
-        '回收站批量操作 request_id=${DateTime.now().microsecondsSinceEpoch} '
-        'completed=${result.completed} failed=${result.failed} '
-        'unprocessed=${result.unprocessed}',
-        name: 'diary.trash');
+      'trash_batch_finished request_id=${DateTime.now().microsecondsSinceEpoch} '
+      'completed=${result.completed} failed=${result.failed} '
+      'unprocessed=${result.unprocessed}',
+      name: 'diary.trash',
+    );
     if (mounted) await _load(clearError: false);
   }
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final visible = filterTrash(_items, _query);
     final selected = _items
         .where((diary) => _selected.contains(diary.id))
         .toList(growable: false);
     return Scaffold(
       appBar: AppBar(
-        title: Text(_selecting ? '已选择 ${_selected.length} 篇' : '回收站'),
+        title: Text(_selecting
+            ? strings.selectedTrashCount(_selected.length)
+            : strings.trashTitle),
         leading: _selecting
             ? IconButton(
-                tooltip: '取消选择',
+                tooltip: strings.cancel,
                 onPressed: _busy ? null : _cancelSelection,
-                icon: const Icon(Icons.close))
+                icon: const Icon(Icons.close),
+              )
             : null,
         actions: [
           if (_selecting)
             IconButton(
-                tooltip: '选择当前筛选结果',
-                onPressed: _busy ? null : _selectVisible,
-                icon: const Icon(Icons.select_all)),
+              tooltip: strings.selectCurrentResults,
+              onPressed: _busy ? null : _selectVisible,
+              icon: const Icon(Icons.select_all),
+            ),
           IconButton(
-              tooltip: '刷新回收站',
-              onPressed: _busy ? null : _load,
-              icon: const Icon(Icons.refresh)),
+            tooltip: strings.refreshTrash,
+            onPressed: _busy ? null : _load,
+            icon: const Icon(Icons.refresh),
+          ),
         ],
       ),
       body: Column(children: [
@@ -243,61 +280,69 @@ class _TrashPageState extends State<TrashPage> {
           padding: const EdgeInsets.fromLTRB(12, 6, 12, 3),
           child: TextField(
             onChanged: (value) => setState(() => _query = value),
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search),
-              hintText: '按日期或正文搜索，空格分隔关键词',
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              hintText: strings.trashSearchHint,
             ),
           ),
         ),
         if (_error != null)
           MaterialBanner(content: Text(_error!), actions: [
             TextButton(
-                onPressed: _busy ? null : _load, child: const Text('重试读取')),
+              onPressed: _busy ? null : _load,
+              child: Text(strings.retryTrash),
+            ),
           ]),
         if (_result != null)
           Padding(
             padding: const EdgeInsets.all(8),
-            child: Text('成功 ${_result!.completed} 篇，失败 ${_result!.failed} 篇，'
-                '未处理 ${_result!.unprocessed} 篇。失败和未处理项目仍可单独重试。'),
+            child: Text(strings.batchResult(
+                _result!.completed, _result!.failed, _result!.unprocessed)),
           ),
         if (_items.isNotEmpty)
           Row(children: [
             TextButton.icon(
-                onPressed: _busy ? null : _selectVisible,
-                icon: const Icon(Icons.select_all),
-                label: const Text('选择筛选结果')),
+              onPressed: _busy ? null : _selectVisible,
+              icon: const Icon(Icons.select_all),
+              label: Text(strings.selectResults),
+            ),
             const Spacer(),
             TextButton(
-                onPressed: _busy
-                    ? null
-                    : () => _run(_items, purge: true, clearAll: true),
-                child: const Text('清空回收站')),
+              onPressed: _busy
+                  ? null
+                  : () => _run(_items, purge: true, clearAll: true),
+              child: Text(strings.clearTrash),
+            ),
           ]),
         if (_selecting)
           Wrap(spacing: 8, children: [
             FilledButton(
-                onPressed: _busy || selected.isEmpty
-                    ? null
-                    : () => _run(selected, purge: false),
-                child: const Text('批量恢复')),
+              onPressed: _busy || selected.isEmpty
+                  ? null
+                  : () => _run(selected, purge: false),
+              child: Text(strings.batchRestore),
+            ),
             OutlinedButton(
-                onPressed: _busy || selected.isEmpty
-                    ? null
-                    : () => _run(selected, purge: true),
-                child: const Text('批量永久删除')),
+              onPressed: _busy || selected.isEmpty
+                  ? null
+                  : () => _run(selected, purge: true),
+              child: Text(strings.batchPurge),
+            ),
           ]),
         Expanded(
-            child: _loading && _items.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : visible.isEmpty
-                    ? Center(
-                        child: Text(_items.isEmpty ? '回收站暂无日记' : '没有匹配的日记'))
-                    : ListView.builder(
-                        itemCount: visible.length,
-                        itemBuilder: (context, index) {
-                          final diary = visible[index];
-                          return Card(
-                              child: ListTile(
+          child: _loading && _items.isEmpty
+              ? const Center(child: CircularProgressIndicator())
+              : visible.isEmpty
+                  ? Center(
+                      child: Text(_items.isEmpty
+                          ? strings.emptyTrash
+                          : strings.noMatchingTrash))
+                  : ListView.builder(
+                      itemCount: visible.length,
+                      itemBuilder: (context, index) {
+                        final diary = visible[index];
+                        return Card(
+                          child: ListTile(
                             selected: _selected.contains(diary.id),
                             onTap: _selecting ? () => _toggle(diary.id) : null,
                             onLongPress: _busy ? null : () => _toggle(diary.id),
@@ -305,7 +350,8 @@ class _TrashPageState extends State<TrashPage> {
                                 ? Checkbox(
                                     value: _selected.contains(diary.id),
                                     onChanged:
-                                        _busy ? null : (_) => _toggle(diary.id))
+                                        _busy ? null : (_) => _toggle(diary.id),
+                                  )
                                 : null,
                             title: Text(diary.date),
                             subtitle: Text(diary.content,
@@ -316,15 +362,20 @@ class _TrashPageState extends State<TrashPage> {
                                     enabled: !_busy,
                                     onSelected: (action) =>
                                         _run([diary], purge: action == 'purge'),
-                                    itemBuilder: (_) => const [
+                                    itemBuilder: (_) => [
                                       PopupMenuItem(
-                                          value: 'restore', child: Text('恢复')),
+                                          value: 'restore',
+                                          child: Text(strings.restore)),
                                       PopupMenuItem(
-                                          value: 'purge', child: Text('永久删除')),
+                                          value: 'purge',
+                                          child: Text(strings.purge)),
                                     ],
                                   ),
-                          ));
-                        })),
+                          ),
+                        );
+                      },
+                    ),
+        ),
       ]),
     );
   }

@@ -6,6 +6,7 @@ import 'package:diary_mobile/models/diary.dart';
 import 'package:diary_mobile/services/app_preferences_store.dart';
 import 'package:diary_mobile/services/local_store.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -46,7 +47,10 @@ void main() {
 
   testWidgets('settings page edits list fields without touching diary data',
       (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(
+      locale: Locale('zh', 'CN'),
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       home: AppSettingsPage(initial: AppPreferences.defaults),
     ));
     await tester.tap(find.text('显示标签'));
@@ -54,6 +58,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(AppSettingsPage), findsNothing);
+  });
+  testWidgets('English locale updates settings labels', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale('en', 'US'),
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      home: const AppSettingsPage(initial: AppPreferences.defaults),
+    ));
+    expect(find.text('Theme, language and list display'), findsOneWidget);
+    expect(find.text('Show tags'), findsOneWidget);
   });
   test('corrupt preferences fall back to safe defaults', () async {
     final database = await store.database;

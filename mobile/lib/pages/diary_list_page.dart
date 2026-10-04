@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/app_config.dart';
+import '../localization/app_strings.dart';
 import '../deletion/random_deletion_page.dart';
 import '../conflicts/conflict_review_page.dart';
 import '../models/app_preferences.dart';
@@ -810,195 +811,187 @@ class _DiaryListPageState extends State<DiaryListPage>
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          title: Text(_selectionMode
-              ? '\u5df2\u9009\u62e9 ${_selectedDiaryIds.length} \u7bc7'
-              : '\u65e5\u8bb0'),
-          leading: _selectionMode
-              ? IconButton(
-                  tooltip: '\u53d6\u6d88\u9009\u62e9',
-                  onPressed: _cancelSelection,
-                  icon: const Icon(Icons.close),
-                )
-              : null,
-          actions: _selectionMode
-              ? [
-                  IconButton(
-                    tooltip: '\u6279\u91cf\u6807\u7b7e',
-                    onPressed: _batchBusy || _selectedDiaryIds.isEmpty
-                        ? null
-                        : _batchTagSelected,
-                    icon: const Icon(Icons.label_outline),
-                  ),
-                  IconButton(
-                    tooltip: '\u6279\u91cf\u5220\u9664',
-                    onPressed: _batchBusy || _selectedDiaryIds.isEmpty
-                        ? null
-                        : _batchDeleteSelected,
-                    icon: const Icon(Icons.delete_outline),
-                  ),
-                ]
-              : [
-                  IconButton(
-                    tooltip: '\u5237\u65b0',
-                    onPressed: _syncTrigger.request,
-                    icon: const Icon(Icons.refresh),
-                  ),
-                  IconButton(
-                    tooltip: '\u968f\u673a\u8fde\u7eed\u64ad\u653e',
-                    onPressed: _playRandomCached,
-                    icon: const Icon(Icons.shuffle),
-                  ),
-                  PopupMenuButton<String>(
-                    tooltip: '\u66f4\u591a\u5de5\u5177',
-                    icon: const Icon(Icons.more_vert),
-                    onSelected: (action) async {
-                      if (action == 'search') {
-                        _openAdvancedSearch();
-                      } else if (action == 'transfer') {
-                        _openTransfer();
-                      } else if (action == 'server') {
-                        _configureServer();
-                      } else if (action == 'tags') {
-                        Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => TagManagerPage(api: _api),
-                        ));
-                      } else if (action == 'trash') {
-                        Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => TrashPage(
-                              api: _api,
-                              sync: _sync,
-                              onChanged: _refreshLocalList),
-                        ));
-                      } else if (action == 'voices') {
-                        final selected = await Navigator.of(context)
-                            .push<String>(MaterialPageRoute(
-                                builder: (_) => VoiceSelectionPage(
-                                    api: _api,
-                                    store: _store,
-                                    serverUrl: _serverUrl,
-                                    currentVoiceId: _voiceId)));
-                        if (selected != null &&
-                            mounted &&
-                            selected != _voiceId) {
-                          await _stopRandomPlayback();
-                          if (mounted) {
-                            setState(() {
-                              _voiceId = selected;
-                              _audioPrefetch.clear();
-                              _prefetchFailed.clear();
-                            });
-                          }
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_selectionMode
+            ? strings.selectedCount(_selectedDiaryIds.length)
+            : strings.diary),
+        leading: _selectionMode
+            ? IconButton(
+                tooltip: strings.cancel,
+                onPressed: _cancelSelection,
+                icon: const Icon(Icons.close),
+              )
+            : null,
+        actions: _selectionMode
+            ? [
+                IconButton(
+                  tooltip: strings.batchTag,
+                  onPressed: _batchBusy || _selectedDiaryIds.isEmpty
+                      ? null
+                      : _batchTagSelected,
+                  icon: const Icon(Icons.label_outline),
+                ),
+                IconButton(
+                  tooltip: strings.batchDelete,
+                  onPressed: _batchBusy || _selectedDiaryIds.isEmpty
+                      ? null
+                      : _batchDeleteSelected,
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ]
+            : [
+                IconButton(
+                  tooltip: strings.refresh,
+                  onPressed: _syncTrigger.request,
+                  icon: const Icon(Icons.refresh),
+                ),
+                IconButton(
+                  tooltip: strings.playRandom,
+                  onPressed: _playRandomCached,
+                  icon: const Icon(Icons.shuffle),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: strings.moreTools,
+                  icon: const Icon(Icons.more_vert),
+                  onSelected: (action) async {
+                    if (action == 'search') {
+                      _openAdvancedSearch();
+                    } else if (action == 'transfer') {
+                      _openTransfer();
+                    } else if (action == 'server') {
+                      _configureServer();
+                    } else if (action == 'tags') {
+                      Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => TagManagerPage(api: _api),
+                      ));
+                    } else if (action == 'trash') {
+                      Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => TrashPage(
+                            api: _api,
+                            sync: _sync,
+                            onChanged: _refreshLocalList),
+                      ));
+                    } else if (action == 'voices') {
+                      final selected = await Navigator.of(context).push<String>(
+                          MaterialPageRoute(
+                              builder: (_) => VoiceSelectionPage(
+                                  api: _api,
+                                  store: _store,
+                                  serverUrl: _serverUrl,
+                                  currentVoiceId: _voiceId)));
+                      if (selected != null && mounted && selected != _voiceId) {
+                        await _stopRandomPlayback();
+                        if (mounted) {
+                          setState(() {
+                            _voiceId = selected;
+                            _audioPrefetch.clear();
+                            _prefetchFailed.clear();
+                          });
                         }
-                      } else if (action == 'conflicts') {
-                        Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => ConflictReviewPage(
-                                sync: _sync,
-                                onResolved: () async {
-                                  await _refreshLocalList();
-                                  await _updatePendingCount();
-                                  if (mounted) {
-                                    unawaited(_syncTrigger.request());
-                                  }
-                                })));
-                      } else if (action == 'random_delete') {
-                        await RandomDeletionPage.open(context,
-                            store: _store, sync: _sync, onChanged: () async {
-                          await _refreshLocalList();
-                          await _updatePendingCount();
-                        });
-                      } else if (action == 'statistics') {
-                        _openStatistics();
-                      } else if (action == 'settings') {
-                        _openSettings();
                       }
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                          value: 'search',
-                          child: Text('\u9ad8\u7ea7\u641c\u7d22')),
-                      PopupMenuItem(
-                          value: 'transfer',
-                          child: Text('\u5bfc\u5165 / \u5bfc\u51fa')),
-                      PopupMenuItem(
-                          value: 'tags',
-                          child: Text('\u6807\u7b7e\u7ba1\u7406')),
-                      PopupMenuItem(
-                          value: 'trash', child: Text('\u56de\u6536\u7ad9')),
-                      PopupMenuItem(value: 'voices', child: Text('语音包选择')),
-                      PopupMenuItem(value: 'conflicts', child: Text('同步冲突审核')),
-                      PopupMenuItem(
-                          value: 'random_delete', child: Text('随机删除')),
-                      PopupMenuItem(
-                          value: 'statistics', child: Text('\u7edf\u8ba1')),
-                      PopupMenuItem(
-                          value: 'settings', child: Text('主题、语言与列表显示')),
-                      PopupMenuItem(
-                          value: 'server',
-                          child: Text('\u670d\u52a1\u5668\u8bbe\u7f6e')),
-                    ],
-                  ),
-                ],
+                    } else if (action == 'conflicts') {
+                      Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => ConflictReviewPage(
+                              sync: _sync,
+                              onResolved: () async {
+                                await _refreshLocalList();
+                                await _updatePendingCount();
+                                if (mounted) {
+                                  unawaited(_syncTrigger.request());
+                                }
+                              })));
+                    } else if (action == 'random_delete') {
+                      await RandomDeletionPage.open(context,
+                          store: _store, sync: _sync, onChanged: () async {
+                        await _refreshLocalList();
+                        await _updatePendingCount();
+                      });
+                    } else if (action == 'statistics') {
+                      _openStatistics();
+                    } else if (action == 'settings') {
+                      _openSettings();
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(value: 'search', child: Text(strings.search)),
+                    PopupMenuItem(
+                        value: 'transfer', child: Text(strings.transfer)),
+                    PopupMenuItem(value: 'tags', child: Text(strings.tags)),
+                    PopupMenuItem(value: 'trash', child: Text(strings.trash)),
+                    PopupMenuItem(value: 'voices', child: Text('语音包选择')),
+                    PopupMenuItem(value: 'conflicts', child: Text('同步冲突审核')),
+                    PopupMenuItem(value: 'random_delete', child: Text('随机删除')),
+                    PopupMenuItem(
+                        value: 'statistics', child: Text(strings.statistics)),
+                    PopupMenuItem(value: 'settings', child: Text('主题、语言与列表显示')),
+                    PopupMenuItem(
+                        value: 'server', child: Text(strings.serverSettings)),
+                  ],
+                ),
+              ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        tooltip: '新建日记',
+        onPressed: () => _openEditor(),
+        child: const Icon(Icons.add),
+      ),
+      body: Column(children: [
+        if (_errorMessage != null)
+          MaterialBanner(content: Text(_errorMessage!), actions: [
+            TextButton(
+                onPressed: _requiresServerCredentials
+                    ? _configureServer
+                    : _syncTrigger.request,
+                child: Text(_requiresServerCredentials ? '服务器设置' : '重试'))
+          ]),
+        if (_syncing || _offline || _pendingCount > 0)
+          SyncStatusBanner(
+            offline: _offline,
+            syncing: _syncing,
+            pendingCount: _pendingCount,
+          ),
+        if (_audioStatus.isNotEmpty)
+          Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(_audioStatus)),
+        RandomPlaybackPanel(
+          active: _randomMode,
+          current: _randomCurrent,
+          candidateCount: _randomPlanner.candidateCount,
+          preparing: _randomCurrent != null &&
+              _snapshot.stage == PlaybackStage.buffering,
+          snapshot: _snapshot,
+          onStart: _playRandomCached,
+          onStop: _stopRandomPlayback,
         ),
-        floatingActionButton: FloatingActionButton(
-          tooltip: '新建日记',
-          onPressed: () => _openEditor(),
-          child: const Icon(Icons.add),
-        ),
-        body: Column(children: [
-          if (_errorMessage != null)
-            MaterialBanner(content: Text(_errorMessage!), actions: [
-              TextButton(
-                  onPressed: _requiresServerCredentials
-                      ? _configureServer
-                      : _syncTrigger.request,
-                  child: Text(_requiresServerCredentials ? '服务器设置' : '重试'))
-            ]),
-          if (_syncing || _offline || _pendingCount > 0)
-            SyncStatusBanner(
-              offline: _offline,
-              syncing: _syncing,
-              pendingCount: _pendingCount,
-            ),
-          if (_audioStatus.isNotEmpty)
-            Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(_audioStatus)),
-          RandomPlaybackPanel(
-            active: _randomMode,
-            current: _randomCurrent,
-            candidateCount: _randomPlanner.candidateCount,
-            preparing: _randomCurrent != null &&
-                _snapshot.stage == PlaybackStage.buffering,
+        Expanded(
+          child: DiaryListBody(
+            diaries: _diaries,
+            searchQuery: _searchQuery,
+            searchOptions: _searchOptions,
+            selectedTag: _selectedTag,
+            playingDiaryId: _playingDiaryId,
             snapshot: _snapshot,
-            onStart: _playRandomCached,
-            onStop: _stopRandomPlayback,
+            preferences: _preferences,
+            onSearch: (text) => setState(() => _searchQuery = text),
+            onTag: (tag) => setState(() => _selectedTag = tag),
+            onClearFilters: () => setState(() {
+              _searchQuery = '';
+              _selectedTag = null;
+              _searchOptions = const DiarySearchOptions();
+            }),
+            onRefresh: _syncTrigger.request,
+            selectionMode: _selectionMode,
+            selectedIds: _selectedDiaryIds,
+            onToggleSelection: _toggleSelection,
+            onOpen: (diary) => _openEditor(diary),
+            onPlay: _toggleDiary,
           ),
-          Expanded(
-            child: DiaryListBody(
-              diaries: _diaries,
-              searchQuery: _searchQuery,
-              searchOptions: _searchOptions,
-              selectedTag: _selectedTag,
-              playingDiaryId: _playingDiaryId,
-              snapshot: _snapshot,
-              preferences: _preferences,
-              onSearch: (text) => setState(() => _searchQuery = text),
-              onTag: (tag) => setState(() => _selectedTag = tag),
-              onClearFilters: () => setState(() {
-                _searchQuery = '';
-                _selectedTag = null;
-                _searchOptions = const DiarySearchOptions();
-              }),
-              onRefresh: _syncTrigger.request,
-              selectionMode: _selectionMode,
-              selectedIds: _selectedDiaryIds,
-              onToggleSelection: _toggleSelection,
-              onOpen: (diary) => _openEditor(diary),
-              onPlay: _toggleDiary,
-            ),
-          ),
-        ]),
-      );
+        ),
+      ]),
+    );
+  }
 }

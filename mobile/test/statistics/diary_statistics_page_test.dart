@@ -7,6 +7,7 @@ import 'package:diary_mobile/services/diary_statistics.dart';
 import 'package:diary_mobile/services/local_store.dart';
 import 'package:diary_mobile/statistics/device_view_repository.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -95,11 +96,14 @@ void main() {
     );
     addTearDown(api.dispose);
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: DiaryStatisticsPage(
-      diaries: cached,
-      api: api,
-      store: local,
-    )));
+          diaries: cached,
+          api: api,
+          store: local,
+        )));
     await tester.pumpAndSettle();
     expect(find.text('325 次'), findsOneWidget);
     expect(find.text('本月服务器查看事件'), findsOneWidget);
@@ -125,11 +129,14 @@ void main() {
     );
     addTearDown(api.dispose);
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: DiaryStatisticsPage(
-      diaries: const [],
-      api: api,
-      store: local,
-    )));
+          diaries: const [],
+          api: api,
+          store: local,
+        )));
     await tester.pumpAndSettle();
     expect(find.textContaining('服务器统计不可用'), findsOneWidget);
     expect(find.text('暂无标签', skipOffstage: false), findsOneWidget);

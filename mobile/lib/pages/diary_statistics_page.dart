@@ -2,6 +2,7 @@ import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 
+import '../localization/app_strings.dart';
 import '../models/diary.dart';
 import '../models/server_daily_statistics.dart';
 import '../models/server_statistics.dart';
@@ -61,10 +62,11 @@ class _DiaryStatisticsPageState extends State<DiaryStatisticsPage> {
       });
     } catch (error, stack) {
       developer.log(
-          '服务器汇总读取失败 request_id=${DateTime.now().microsecondsSinceEpoch}',
-          name: 'diary.statistics',
-          error: error,
-          stackTrace: stack);
+        'server_summary_failed request_id=${DateTime.now().microsecondsSinceEpoch}',
+        name: 'diary.statistics',
+        error: error,
+        stackTrace: stack,
+      );
       if (mounted && request == _serverRequest) {
         setState(() => _serverUnavailable = true);
       }
@@ -89,29 +91,35 @@ class _DiaryStatisticsPageState extends State<DiaryStatisticsPage> {
     });
     try {
       final local = await widget.store.getDeviceViewHistory(month);
-      if (mounted && request == _monthRequest) setState(() => _history = local);
+      if (mounted && request == _monthRequest) {
+        setState(() => _history = local);
+      }
     } catch (error, stack) {
       developer.log(
-          '本设备查看记录读取失败 request_id=${DateTime.now().microsecondsSinceEpoch}',
-          name: 'diary.statistics',
-          error: error,
-          stackTrace: stack);
+        'device_history_failed request_id=${DateTime.now().microsecondsSinceEpoch}',
+        name: 'diary.statistics',
+        error: error,
+        stackTrace: stack,
+      );
       if (mounted && request == _monthRequest) {
         setState(() => _monthUnavailable = true);
       }
     }
     try {
-      final daily =
-          await widget.api.fetchDailyStatistics(start: start, end: end);
+      final daily = await widget.api.fetchDailyStatistics(
+        start: start,
+        end: end,
+      );
       if (mounted && request == _monthRequest) {
         setState(() => _serverDaily = daily);
       }
     } catch (error, stack) {
       developer.log(
-          '服务器每日统计读取失败 request_id=${DateTime.now().microsecondsSinceEpoch}',
-          name: 'diary.statistics',
-          error: error,
-          stackTrace: stack);
+        'server_daily_statistics_failed request_id=${DateTime.now().microsecondsSinceEpoch}',
+        name: 'diary.statistics',
+        error: error,
+        stackTrace: stack,
+      );
       if (mounted && request == _monthRequest) {
         setState(() => _serverDailyUnavailable = true);
       }
@@ -133,40 +141,42 @@ class _DiaryStatisticsPageState extends State<DiaryStatisticsPage> {
     } catch (error, stack) {
       remoteUnavailable = true;
       developer.log(
-          '日期日记读取失败 request_id=${DateTime.now().microsecondsSinceEpoch}',
-          name: 'diary.statistics',
-          error: error,
-          stackTrace: stack);
+        'calendar_diaries_failed request_id=${DateTime.now().microsecondsSinceEpoch}',
+        name: 'diary.statistics',
+        error: error,
+        stackTrace: stack,
+      );
     }
     if (!mounted) return;
+    final strings = AppStrings.of(context);
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('日期：$date'),
+        title: Text(strings.dateLabel(date)),
         content: SizedBox(
           width: double.maxFinite,
           child: ListView(shrinkWrap: true, children: [
-            Text('本地缓存：${cached.length} 篇'),
+            Text(strings.localCacheCount(cached.length)),
             ...cached.map((diary) => ListTile(
                   dense: true,
                   title: Text(diary.content),
-                  subtitle: Text('查看 ${diary.viewCount} 次'),
+                  subtitle: Text(strings.viewed(diary.viewCount)),
                 )),
-            if (cached.isEmpty) const Text('本地没有缓存该日期的日记。'),
-            Text('服务器：${remote.length} 篇'),
+            if (cached.isEmpty) Text(strings.localNoDateDiaries),
+            Text(strings.serverCount(remote.length)),
             ...remote.map((diary) => ListTile(
                   dense: true,
                   title: Text(diary.content),
-                  subtitle: const Text('服务器历史明细'),
+                  subtitle: Text(strings.serverHistoryDetails),
                 )),
-            if (remoteUnavailable) const Text('服务器日期明细暂不可用。'),
+            if (remoteUnavailable) Text(strings.serverDateUnavailable),
           ]),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('关闭'),
-          )
+            child: Text(strings.close),
+          ),
         ],
       ),
     );
@@ -184,119 +194,172 @@ class _DiaryStatisticsPageState extends State<DiaryStatisticsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final local = calculateDiaryStatistics(widget.diaries);
     final sortedTags = local.tagCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final deviceDays = _history?.dailyCounts.entries.toList()
       ?..sort((a, b) => a.key.compareTo(b.key));
     return Scaffold(
-      appBar: AppBar(title: const Text('统计与日期分布'), actions: [
-        IconButton(
-            tooltip: '刷新统计',
+      appBar: AppBar(
+        title: Text(strings.statsTitle),
+        actions: [
+          IconButton(
+            tooltip: strings.refresh,
             onPressed: _refresh,
-            icon: const Icon(Icons.refresh)),
-      ]),
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         if (_loadingServer || _loadingMonth) const LinearProgressIndicator(),
-        const Text('服务器汇总',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        Text(strings.serverSummary,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         if (_serverUnavailable)
           Text(_server == null
-              ? '服务器统计不可用；以下展示本设备可读取的缓存数据。'
-              : '服务器暂不可用；以下汇总为上次成功获取的结果，并非实时数据。'),
+              ? strings.serverCacheFallback
+              : strings.serverPreviousFallback),
         if (_server == null && !_serverUnavailable && _loadingServer)
-          const Text('正在获取服务器汇总……'),
+          Text(strings.loadingServerSummary),
         if (_server != null) ...[
-          _StatCard(label: '服务器日记', value: '${_server!.totalDiaries} 篇'),
-          _StatCard(label: '服务器查看次数', value: '${_server!.totalViews} 次'),
           _StatCard(
-              label: '服务器平均查看',
-              value: _server!.averageViews.toStringAsFixed(1)),
-          _StatCard(label: '最多查看', value: '${_server!.mostViewedCount} 次'),
-          _StatCard(label: '最少查看', value: '${_server!.leastViewedCount} 次'),
+            label: strings.serverDiaries,
+            value: strings.count(_server!.totalDiaries, strings.diaryUnit),
+          ),
+          _StatCard(
+            label: strings.serverViews,
+            value: strings.count(_server!.totalViews, strings.timesUnit),
+          ),
+          _StatCard(
+            label: strings.serverAverageViews,
+            value: _server!.averageViews.toStringAsFixed(1),
+          ),
+          _StatCard(
+            label: strings.mostViewed,
+            value: strings.count(_server!.mostViewedCount, strings.timesUnit),
+          ),
+          _StatCard(
+            label: strings.leastViewed,
+            value: strings.count(_server!.leastViewedCount, strings.timesUnit),
+          ),
         ],
         const Divider(height: 28),
-        const Text('服务器历史日期明细',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        Text(strings.serverDailyDetails,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         if (_serverDailyUnavailable)
-          const Text('服务器每日明细暂不可用；不使用本设备事件替代。')
+          Text(strings.dailyUnavailable)
         else if (_serverDaily == null)
-          const Text('正在读取服务器每日明细……')
+          Text(strings.loadingDaily)
         else ...[
           _StatCard(
-              label: '本月服务器查看事件', value: '${_serverDaily!.totalEvents} 次'),
-          _StatCard(label: '本月活跃日期', value: '${_serverDaily!.activeDays} 天'),
+            label: strings.serverDailyEvents,
+            value: strings.count(_serverDaily!.totalEvents, strings.timesUnit),
+          ),
+          _StatCard(
+            label: strings.activeDays,
+            value: strings.count(_serverDaily!.activeDays, strings.dayUnit),
+          ),
         ],
         const Divider(height: 28),
-        const Text('当前设备缓存',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        Text(strings.deviceCache,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        const Text('以下统计只覆盖当前设备已缓存的日记，不代表服务器全部日记。'),
-        _StatCard(label: '缓存日记', value: '${local.total} 篇'),
-        _StatCard(label: '正文字符', value: '${local.totalCharacters} 个'),
-        _StatCard(label: '缓存查看总数', value: '${local.totalViews} 次'),
-        _StatCard(label: '活跃日期', value: '${local.activeDays} 天'),
-        _StatCard(label: '最近日期', value: local.latestDate ?? '无'),
+        Text(strings.deviceCacheNote),
+        _StatCard(
+          label: strings.cachedDiaries,
+          value: strings.count(local.total, strings.diaryUnit),
+        ),
+        _StatCard(
+          label: strings.contentCharacters,
+          value: strings.count(local.totalCharacters, strings.characterUnit),
+        ),
+        _StatCard(
+          label: strings.cachedViews,
+          value: strings.count(local.totalViews, strings.timesUnit),
+        ),
+        _StatCard(
+          label: strings.activeDays,
+          value: strings.count(local.activeDays, strings.dayUnit),
+        ),
+        _StatCard(
+            label: strings.latestDate,
+            value: local.latestDate ?? strings.noData),
         const SizedBox(height: 16),
-        const Text('标签使用次数',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        Text(strings.tagUsage,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         if (sortedTags.isEmpty)
-          const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12), child: Text('暂无标签'))
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Text(strings.noTags),
+          )
         else
           ...sortedTags.map((entry) => ListTile(
                 dense: true,
                 leading: const Icon(Icons.label_outline),
                 title: Text(entry.key),
-                trailing: Text('${entry.value} 篇'),
+                trailing: Text(strings.count(entry.value, strings.diaryUnit)),
               )),
         const SizedBox(height: 16),
-        const Text('最长日记',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        Text(strings.longestDiary,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         ListTile(
-            title: Text(local.longestContent?.date ?? '无'),
-            subtitle: Text(local.longestContent?.content ?? '暂无缓存日记',
-                maxLines: 4, overflow: TextOverflow.ellipsis)),
+          title: Text(local.longestContent?.date ?? strings.noData),
+          subtitle: Text(local.longestContent?.content ?? strings.noCachedDiary,
+              maxLines: 4, overflow: TextOverflow.ellipsis),
+        ),
         const Divider(height: 28),
-        const Text('日期热力图',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        Text(strings.heatmap,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         Row(children: [
           IconButton(
-              tooltip: '上个月',
-              onPressed: () => _changeMonth(-1),
-              icon: const Icon(Icons.chevron_left)),
+            tooltip: strings.previousMonth,
+            onPressed: () => _changeMonth(-1),
+            icon: const Icon(Icons.chevron_left),
+          ),
           Expanded(
-              child: Center(child: Text('${_month.year} 年 ${_month.month} 月'))),
+            child: Center(
+                child: Text(strings.monthLabel(_month.year, _month.month))),
+          ),
           IconButton(
-              tooltip: '下个月',
-              onPressed: () => _changeMonth(1),
-              icon: const Icon(Icons.chevron_right)),
+            tooltip: strings.nextMonth,
+            onPressed: () => _changeMonth(1),
+            icon: const Icon(Icons.chevron_right),
+          ),
         ]),
         if (_monthUnavailable)
-          const Text('本设备逐日记录读取失败，请重试。')
+          Text(strings.deviceRecordsUnavailable)
         else if (_history == null)
-          const Text('正在读取本设备逐日记录……')
+          Text(strings.loadingDeviceRecords)
         else ...[
-          _StatCard(label: '本设备已记录事件', value: '${_history!.totalEvents} 次'),
-          _StatCard(label: '其中待同步', value: '${_history!.pendingEvents} 次'),
+          _StatCard(
+            label: strings.serverDailyDetails,
+            value: strings.count(_history!.totalEvents, strings.timesUnit),
+          ),
+          _StatCard(
+            label: strings.pendingSync,
+            value: strings.count(_history!.pendingEvents, strings.timesUnit),
+          ),
           MonthlyDiaryHeatmap(
-              month: _month,
-              deviceViews: _history!.dailyCounts,
-              serverViews: _serverDaily?.dailyCounts ?? const {},
-              cachedDiaries: cachedDiaryDays(widget.diaries, _month),
-              onDateTap: _showDate),
+            month: _month,
+            deviceViews: _history!.dailyCounts,
+            serverViews: _serverDaily?.dailyCounts ?? const {},
+            cachedDiaries: cachedDiaryDays(widget.diaries, _month),
+            onDateTap: _showDate,
+          ),
           if (deviceDays == null || deviceDays.isEmpty)
-            const Text('本月没有本设备新增查看事件。')
+            Text(strings.noDeviceEvents)
           else
             ...deviceDays.map((entry) => ListTile(
-                dense: true,
-                title: Text(entry.key),
-                trailing: Text('本设备新增查看 ${entry.value} 次'))),
+                  dense: true,
+                  title: Text(entry.key),
+                  trailing: Text(strings.deviceEventCount(entry.value)),
+                )),
         ],
-        const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Text('服务器日期明细来自真实查看事件；本设备新增事件与服务器历史分开展示。')),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(strings.statisticsSourceNote),
+        ),
       ]),
     );
   }
@@ -304,12 +367,16 @@ class _DiaryStatisticsPageState extends State<DiaryStatisticsPage> {
 
 class _StatCard extends StatelessWidget {
   const _StatCard({required this.label, required this.value});
+
   final String label;
   final String value;
+
   @override
   Widget build(BuildContext context) => Card(
-      child: ListTile(
+        child: ListTile(
           title: Text(label),
-          trailing: Text(value,
-              style: const TextStyle(fontWeight: FontWeight.bold))));
+          trailing:
+              Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ),
+      );
 }

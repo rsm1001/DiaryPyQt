@@ -5,6 +5,7 @@ import 'package:diary_mobile/services/local_store.dart';
 import 'package:diary_mobile/services/sync_manager.dart';
 import 'package:diary_mobile/pages/trash_page.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Diary entry(String id, {String date = '2026-10-03', String? content}) => Diary(
@@ -98,6 +99,9 @@ void main() {
     var changes = 0;
     addTearDown(api.dispose);
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home:
             TrashPage(api: api, sync: sync, onChanged: () async => changes++)));
     await tester.pumpAndSettle();
@@ -121,6 +125,9 @@ void main() {
     final api = _FakeTrashApi()..failIds.add('b');
     addTearDown(api.dispose);
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: TrashPage(
             api: api, sync: _FakeSync(api: api, store: _FakeStore()))));
     await tester.pumpAndSettle();
@@ -148,6 +155,9 @@ void main() {
     final api = _FakeTrashApi()..unsupported = true;
     addTearDown(api.dispose);
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: TrashPage(
             api: api, sync: _FakeSync(api: api, store: _FakeStore()))));
     await tester.pumpAndSettle();
@@ -196,7 +206,11 @@ void main() {
     final store = _FakeStore();
     final sync = _FakeSync(api: api, store: store)..offline = true;
     addTearDown(api.dispose);
-    await tester.pumpWidget(MaterialApp(home: TrashPage(api: api, sync: sync)));
+    await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: TrashPage(api: api, sync: sync)));
     await tester.pumpAndSettle();
     await tester.tap(find.text('选择筛选结果'));
     await tester.pumpAndSettle();

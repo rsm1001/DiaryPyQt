@@ -5,6 +5,7 @@ import 'package:diary_mobile/services/diary_filter.dart';
 import 'package:diary_mobile/services/double_playback_service.dart';
 import 'package:diary_mobile/widgets/diary_list_body.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -50,33 +51,38 @@ void main() {
     var options = DiarySearchOptions(minViews: 5, tags: const ['重要']);
     final future = Future.value(diaries);
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: Scaffold(
             body: StatefulBuilder(
-      builder: (context, refresh) => DiaryListBody(
-        diaries: future,
-        searchQuery: query,
-        selectedTag: tag,
-        searchOptions: options,
-        playingDiaryId: null,
-        snapshot: snapshot,
-        onSearch: (text) => refresh(() => query = text),
-        onTag: (value) => refresh(() => tag = value),
-        onClearFilters: () => refresh(() {
-          query = '';
-          tag = null;
-          options = const DiarySearchOptions();
-        }),
-        onRefresh: () async {},
-        onOpen: (_) async {},
-        onPlay: (_) async {},
-      ),
-    ))));
+          builder: (context, refresh) => DiaryListBody(
+            diaries: future,
+            searchQuery: query,
+            selectedTag: tag,
+            searchOptions: options,
+            playingDiaryId: null,
+            snapshot: snapshot,
+            onSearch: (text) => refresh(() => query = text),
+            onTag: (value) => refresh(() => tag = value),
+            onClearFilters: () => refresh(() {
+              query = '';
+              tag = null;
+              options = const DiarySearchOptions();
+            }),
+            onRefresh: () async {},
+            onOpen: (_) async {},
+            onPlay: (_) async {},
+          ),
+        ))));
     await tester.pumpAndSettle();
     expect(find.textContaining('项目进展'), findsOneWidget);
     expect(find.textContaining('读书'), findsNothing);
     final row = tester.widget<ListTile>(find.byType(ListTile).first);
     final subtitle = row.subtitle! as Text;
-    final highlighted = (subtitle.textSpan! as TextSpan).children!.cast<TextSpan>()
+    final highlighted = (subtitle.textSpan! as TextSpan)
+        .children!
+        .cast<TextSpan>()
         .where((span) => span.style?.backgroundColor != null);
     expect(highlighted.map((span) => span.text).join(), '项目进展');
     await tester.tap(find.text('清除全部筛选'));
@@ -91,17 +97,20 @@ void main() {
   testWidgets('高级搜索可组合多个标签并校验查看次数', (tester) async {
     DiarySearchOptions? result;
     await tester.pumpWidget(MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         home: Scaffold(
             body: Builder(
-      builder: (context) => TextButton(
-        onPressed: () async {
-          result = await showAdvancedSearchDialog(
-              context, const DiarySearchOptions(),
-              availableTags: ['工作', '重要']);
-        },
-        child: const Text('打开搜索'),
-      ),
-    ))));
+          builder: (context) => TextButton(
+            onPressed: () async {
+              result = await showAdvancedSearchDialog(
+                  context, const DiarySearchOptions(),
+                  availableTags: ['工作', '重要']);
+            },
+            child: const Text('打开搜索'),
+          ),
+        ))));
     await tester.tap(find.text('打开搜索'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
