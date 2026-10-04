@@ -16,7 +16,6 @@ import 'batch_tag_dialog.dart';
 import 'diary_editor_page.dart';
 import 'diary_transfer_page.dart';
 import 'diary_statistics_page.dart';
-import 'app_settings_page.dart';
 import 'tag_manager_page.dart';
 import 'server_connection_dialog.dart';
 import 'trash_page.dart';
@@ -25,6 +24,7 @@ import '../services/diary_filter.dart';
 import '../services/double_playback_service.dart';
 import '../services/local_store.dart';
 import '../services/app_preferences_store.dart';
+import '../settings/app_preferences_navigation.dart';
 import '../services/sync_manager.dart';
 import '../services/sync_trigger.dart';
 import '../services/random_playback_plan.dart';
@@ -644,14 +644,12 @@ class _DiaryListPageState extends State<DiaryListPage>
   }
 
   Future<void> _openSettings() async {
-    final updated = await Navigator.of(context).push<AppPreferences>(
-      MaterialPageRoute(
-        builder: (_) => AppSettingsPage(initial: _preferences),
-      ),
+    final updated = await openAppPreferences(
+      context,
+      initial: _preferences,
+      save: _store.saveAppPreferences,
     );
     if (updated == null || !mounted) return;
-    await _store.saveAppPreferences(updated);
-    if (!mounted) return;
     setState(() => _preferences = updated);
     widget.onPreferencesChanged?.call(updated);
   }

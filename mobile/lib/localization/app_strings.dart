@@ -23,6 +23,9 @@ class AppStrings {
   String get moreTools => english ? 'More tools' : '\u66f4\u591a\u5de5\u5177';
   String get cancel => english ? 'Cancel' : '\u53d6\u6d88';
   String get save => english ? 'Save' : '\u4fdd\u5b58';
+  String get preferencesSaveFailed => english
+      ? 'Settings could not be saved. Please try again.'
+      : '\u8bbe\u7f6e\u4fdd\u5b58\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5\u3002';
   String get close => english ? 'Close' : '\u5173\u95ed';
   String get search => english ? 'Advanced search' : '\u9ad8\u7ea7\u641c\u7d22';
   String get transfer =>

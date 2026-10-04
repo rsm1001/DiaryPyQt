@@ -59,6 +59,47 @@ void main() {
 
     expect(find.byType(AppSettingsPage), findsNothing);
   });
+  testWidgets('theme language and date visibility save together',
+      (tester) async {
+    AppPreferences? result;
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: TextButton(
+            onPressed: () async {
+              result = await Navigator.of(context).push<AppPreferences>(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      const AppSettingsPage(initial: AppPreferences.defaults),
+                ),
+              );
+            },
+            child: const Text('Open preferences'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('Open preferences'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<AppThemeMode>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('\u6df1\u8272').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<AppLanguage>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('English').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('\u663e\u793a\u65e5\u671f'));
+    await tester.tap(find.text('\u663e\u793a\u65e5\u671f'));
+    await tester.tap(find.text('\u4fdd\u5b58'));
+    await tester.pumpAndSettle();
+    expect(result?.themeMode, AppThemeMode.dark);
+    expect(result?.language, AppLanguage.english);
+    expect(result?.showDate, isFalse);
+  });
   testWidgets('English locale updates settings labels', (tester) async {
     await tester.pumpWidget(MaterialApp(
       locale: const Locale('en', 'US'),
@@ -68,6 +109,23 @@ void main() {
     ));
     expect(find.text('Theme, language and list display'), findsOneWidget);
     expect(find.text('Show tags'), findsOneWidget);
+  });
+  test('theme and language survive database reopen without sync mutations',
+      () async {
+    final saved = AppPreferences.defaults.copyWith(
+      themeMode: AppThemeMode.dark,
+      language: AppLanguage.english,
+      showDate: false,
+      sortField: DiarySortField.views,
+    );
+    await store.saveAppPreferences(saved);
+    await store.close();
+    final reopened = await databaseFactoryFfi
+        .openDatabase(path.join(directory.path, 'diary.db'));
+    store = LocalStore.withDatabase(reopened);
+
+    expect((await store.getAppPreferences()).toJson(), saved.toJson());
+    expect(await store.getOutbox(), isEmpty);
   });
   test('corrupt preferences fall back to safe defaults', () async {
     final database = await store.database;

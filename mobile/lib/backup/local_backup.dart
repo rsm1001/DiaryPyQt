@@ -221,8 +221,8 @@ class LocalBackupRepository {
       await transaction.delete('playback_records');
       await transaction.delete('device_view_events');
       await transaction.delete('sync_state',
-          where: 'key != ? AND key != ?',
-          whereArgs: ['server_url', 'device_id']);
+          where: 'key NOT IN (?, ?, ?)',
+          whereArgs: ['server_url', 'device_id', 'app_preferences']);
       for (final raw in data['diaries'] as List) {
         await transaction.insert(
             'diaries', Map<String, dynamic>.from(raw as Map));

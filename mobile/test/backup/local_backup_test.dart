@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:diary_mobile/backup/local_backup.dart';
+import 'package:diary_mobile/models/app_preferences.dart';
 import 'package:diary_mobile/models/diary.dart';
 import 'package:diary_mobile/playback/playback_record.dart';
 import 'package:diary_mobile/playback/local_store_playback.dart';
+import 'package:diary_mobile/services/app_preferences_store.dart';
 import 'package:diary_mobile/services/local_store.dart';
 import 'package:diary_mobile/backup/local_store_backup.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -69,6 +71,23 @@ void main() {
     expect(() => LocalBackup.parse(backup.encode()), returnsNormally);
   });
 
+  test('恢复备份保留本机界面偏好且不将其导出', () async {
+    final preferences = AppPreferences.defaults.copyWith(
+      themeMode: AppThemeMode.dark,
+      language: AppLanguage.english,
+      showDate: false,
+    );
+    await store.saveAppPreferences(preferences);
+    await store.saveDiary(diary);
+    final backup = await store.exportLocalBackup();
+    expect(backup.encode(), isNot(contains('app_preferences')));
+    await store.removeDiary(diary.id);
+
+    await store.restoreLocalBackup(backup);
+    expect((await store.getAppPreferences()).toJson(), preferences.toJson());
+    expect((await store.getDiary(diary.id))!.content, diary.content);
+    expect(await store.getOutbox(), isEmpty);
+  });
   test('损坏、空文件、错误版本和缺表备份均拒绝', () async {
     expect(() => LocalBackup.parse(''), throwsFormatException);
     expect(() => LocalBackup.parse('{"backup_type":"diary_mobile_local"}'),

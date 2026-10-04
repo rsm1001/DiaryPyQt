@@ -156,7 +156,7 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
           ? await widget.documents.saveCsv(exportDiariesCsv(diaries))
           : await widget.documents.saveJson(exportDiariesJson(diaries));
       if (mounted && saved) {
-        setState(() => _message = '已导出 ${diaries.length} 篇日记');
+        setState(() => _message = strings.diariesExported(diaries.length));
       }
     } catch (error, stack) {
       developer.log(
@@ -214,7 +214,7 @@ class _DiaryTransferPageState extends State<DiaryTransferPage> {
       final count = await widget.sync.importDiaries(preview.entries);
       await widget.onImported();
       if (mounted) {
-        setState(() => _message = '已导入 $count 篇，其余已跳过');
+        setState(() => _message = strings.diariesImported(count));
       }
     } catch (error, stack) {
       developer.log(

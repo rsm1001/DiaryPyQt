@@ -224,7 +224,11 @@ class _DiaryListBodyState extends State<DiaryListBody> {
                                     : null,
                                 title: Text.rich(TextSpan(
                                   children: diaryHighlightSpans(
-                                      diary.date, terms, highlight),
+                                      widget.preferences.showDate
+                                          ? diary.date
+                                          : strings.diary,
+                                      terms,
+                                      highlight),
                                 )),
                                 subtitle: Text.rich(
                                   TextSpan(
