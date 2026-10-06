@@ -99,4 +99,23 @@ void main() {
     expect(await oldFile.exists(), isTrue);
     await upgradedStore.close();
   });
+  test('damaged cached audio is removed instead of being used for playback',
+      () async {
+    final file = File(path.join(root.path, 'damaged.mp3'))
+      ..writeAsBytesSync([1, 2, 3]);
+    final damaged = AudioAsset(
+      id: 'damaged',
+      diaryId: 'diary',
+      voiceId: 'voice-a',
+      contentHash: 'hash-damaged',
+      fileHash:
+          'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+      durationMs: 100,
+      downloadUrl: 'https://example.invalid/audio/damaged',
+    );
+    await store.saveAudio(damaged, file.path);
+
+    expect(await store.getAudio('diary', 'voice-a', 'hash-damaged'), isNull);
+    expect(await file.exists(), isFalse);
+  });
 }

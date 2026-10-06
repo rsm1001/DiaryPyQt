@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/audio_asset.dart';
@@ -49,10 +50,36 @@ class VoiceCacheRepository {
     if (rows.isEmpty) return null;
     final row = rows.first;
     final filePath = row['file_path']! as String;
-    if (!await File(filePath).exists()) return null;
+    final file = File(filePath);
+    if (!await _isValidFile(row, file)) {
+      await _removeInvalidRow(row);
+      return null;
+    }
     return AudioAsset.fromJson(
             jsonDecode(row['json'] as String) as Map<String, dynamic>, '')
         .copyWith(localPath: filePath);
+  }
+
+  Future<bool> _isValidFile(Map<String, Object?> row, File file) async {
+    if (!await file.exists() || await file.length() == 0) return false;
+    final expected = (row['file_hash'] as String?) ?? '';
+    if (!expected.startsWith('sha256:')) return true;
+    final actual = sha256.convert(await file.readAsBytes()).toString();
+    return actual == expected.substring('sha256:'.length);
+  }
+
+  Future<void> _removeInvalidRow(Map<String, Object?> row) async {
+    await db.delete(
+      'audio_cache',
+      where: 'diary_id = ? AND voice_id = ? AND content_hash = ?',
+      whereArgs: [row['diary_id'], row['voice_id'], row['content_hash']],
+    );
+    final file = File(row['file_path']! as String);
+    try {
+      if (await file.exists()) await file.delete();
+    } on FileSystemException {
+      // ??????????????????????
+    }
   }
 
   Future<void> save(AudioAsset asset, String filePath) async {

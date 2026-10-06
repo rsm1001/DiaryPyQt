@@ -393,31 +393,30 @@ class DiaryApi {
       throw const DiaryApiException(
           'Audio download host does not match the diary server');
     }
-    final offset = await target.exists() ? await target.length() : 0;
-    final request = http.Request('GET', Uri.parse(asset.downloadUrl));
-    request.headers.addAll({
-      ..._authHeaders,
-      if (offset > 0) 'Range': 'bytes=$offset-',
-    });
-    final response =
-        await _client.send(request).timeout(const Duration(minutes: 3));
-    if (response.statusCode != 200 && response.statusCode != 206) {
-      final failed = await http.Response.fromStream(response);
-      _ensureSuccess(failed);
-      return;
-    }
-    final append = offset > 0 && response.statusCode == 206;
-    final sink = target.openWrite(
-      mode: append ? FileMode.append : FileMode.write,
-    );
-    try {
-      await for (final chunk
-          in response.stream.timeout(const Duration(minutes: 3))) {
-        sink.add(chunk);
+    var offset = await target.exists() ? await target.length() : 0;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final response = await _client.get(
+        Uri.parse(asset.downloadUrl),
+        headers: {
+          ..._authHeaders,
+          if (offset > 0) 'Range': 'bytes=$offset-',
+        },
+      ).timeout(const Duration(minutes: 3));
+      if (response.statusCode == 416 && offset > 0) {
+        offset = 0;
+        continue;
       }
-      await sink.flush();
-    } finally {
-      await sink.close();
+      if (response.statusCode != 200 && response.statusCode != 206) {
+        _ensureSuccess(response);
+        return;
+      }
+      final append = offset > 0 && response.statusCode == 206;
+      await target.writeAsBytes(
+        response.bodyBytes,
+        mode: append ? FileMode.append : FileMode.write,
+        flush: true,
+      );
+      return;
     }
   }
 

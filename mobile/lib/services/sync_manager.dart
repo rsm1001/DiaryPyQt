@@ -8,6 +8,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 
 import '../conflicts/diary_conflict.dart';
 import '../models/audio_asset.dart';
+import '../models/audio_preparation_stage.dart';
 import '../playback/playback_record.dart';
 import '../playback/local_store_playback.dart';
 import '../models/diary.dart';
@@ -205,6 +206,7 @@ class SyncManager {
         '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
         '${hex.substring(20)}';
   }
+
   Future<void> recordView(Diary diary) async {
     final eventId = _newViewEventId();
     final viewedAt = DateTime.now().toUtc().toIso8601String();
@@ -218,6 +220,7 @@ class SyncManager {
       if (!_isNetworkFailure(error)) rethrow;
     }
   }
+
   Future<void> restoreDiary(Diary diary) async {
     final pending = await store.getOutbox();
     if (pending.any((row) =>
@@ -246,6 +249,7 @@ class SyncManager {
       if (_isConflict(error)) await _captureConflict(diary.id, 'restore');
     }
   }
+
   Future<void> deleteDiary(Diary diary) async {
     final pending = await store.getOutbox();
     if (diary.id.startsWith('local-')) {
@@ -300,6 +304,7 @@ class SyncManager {
       if (_isConflict(error)) await _captureConflict(diary.id, 'delete');
     }
   }
+
   Future<PlaybackRecord> savePlaybackRecord({
     required String diaryId,
     required String voiceId,
@@ -321,6 +326,7 @@ class SyncManager {
     await store.savePlayback(record);
     return record;
   }
+
   Future<PlaybackRecord?> localPlayback(String diaryId, String voiceId) =>
       store.getPlayback(diaryId, voiceId);
   Future<PlaybackRecord?> remotePlayback(String diaryId, String voiceId) async {
@@ -332,11 +338,13 @@ class SyncManager {
         await api.fetchPlaybackRecords(diaryId: diaryId, voiceId: voiceId);
     return others.isEmpty ? null : others.first;
   }
+
   Future<void> _flushPlayback(Map<String, dynamic> payload, int id) async {
     final saved = await api.savePlayback(PlaybackRecord.fromJson(payload));
     await store.savePlayback(saved, queue: false);
     await store.acknowledgeMutation(id);
   }
+
   Future<void> _flushOutbox() async {
     while (true) {
       final pending = await store.getOutbox();
@@ -417,6 +425,7 @@ class SyncManager {
       await store.acknowledgeMutation(id);
     }
   }
+
   Future<void> flushPending() => _flushOutbox();
   Future<int> pendingCount() async => (await store.getOutbox()).length;
   Future<List<Diary>> refresh() async {
@@ -432,11 +441,13 @@ class SyncManager {
         .saveCursor((pull['next_cursor'] as int?) ?? await store.getCursor());
     return diaries;
   }
+
   Future<AudioAsset> ensureAudio(
     Diary diary, {
     String voiceId = '',
-    void Function(String status)? onStatus,
+    void Function(AudioPreparationStage stage)? onStatus,
   }) async {
+    onStatus?.call(AudioPreparationStage.checkingCache);
     final defaultVoice =
         voiceId.isEmpty ? await store.defaultVoice(api.cacheScope) : null;
     final cached = voiceId.isEmpty && defaultVoice == null
@@ -444,10 +455,10 @@ class SyncManager {
         : await store.getAudio(
             diary.id, defaultVoice ?? voiceId, diary.contentHash);
     if (cached != null) {
-      onStatus?.call('已从离线缓存读取音频');
+      onStatus?.call(AudioPreparationStage.loadedOfflineCache);
       return cached;
     }
-    onStatus?.call('正在生成音频');
+    onStatus?.call(AudioPreparationStage.generating);
     final asset = await api.generateAudio(diary.id,
         voiceId: voiceId.isEmpty ? null : voiceId);
     if (asset.diaryId != diary.id ||
@@ -462,9 +473,9 @@ class SyncManager {
         jsonEncode([diary.id, asset.voiceId, diary.contentHash, asset.id])));
     final filePath = '$directory/$key.mp3';
     final partialFile = File('$filePath.part');
-    onStatus?.call('正在下载音频');
+    onStatus?.call(AudioPreparationStage.downloading);
     await api.downloadAudioToFile(asset, partialFile);
-    onStatus?.call('正在校验音频');
+    onStatus?.call(AudioPreparationStage.verifying);
     final actualHash =
         sha256.convert(await partialFile.readAsBytes()).toString();
     final expectedHash = asset.fileHash.replaceFirst('sha256:', '');
@@ -484,7 +495,7 @@ class SyncManager {
     if (voiceId.isEmpty) {
       await store.saveDefaultVoice(api.cacheScope, asset.voiceId);
     }
-    onStatus?.call('音频已缓存');
+    onStatus?.call(AudioPreparationStage.cached);
     developer.log(
         jsonEncode({
           'request_id': DateTime.now().microsecondsSinceEpoch.toString(),

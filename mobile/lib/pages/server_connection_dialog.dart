@@ -54,7 +54,7 @@ class _ServerConnectionDialogState extends State<_ServerConnectionDialog> {
     }
     Navigator.of(context).pop(ServerConnectionInput(
       url: candidate,
-      password: _password.text.trim(),
+      password: _password.text,
     ));
   }
 

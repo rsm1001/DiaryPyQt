@@ -94,11 +94,10 @@ class _DiaryListPageState extends State<DiaryListPage>
   Diary? _randomCurrent;
   bool _randomMode = false;
   int _randomToken = 0;
+  bool _randomLoopRunning = false;
   int _playRequest = 0;
   final _audioRequests = AudioRequestRegistry();
-  int _prefetchActive = 0;
-  final Map<String, int> _randomFailures = {};
-  final Set<String> _selectedDiaryIds = {}, _prefetchFailed = {};
+  final Set<String> _selectedDiaryIds = {};
   bool _selectionMode = false;
   bool _batchBusy = false;
   late AppPreferences _preferences = widget.preferences;
@@ -373,36 +372,6 @@ class _DiaryListPageState extends State<DiaryListPage>
     );
   }
 
-  Future<void> _prefetchRandomPlan() async {
-    if (!_randomMode) return;
-    for (final diary in _randomPlanner.peek(limit: 3)) {
-      if (_prefetchActive >= 2 ||
-          _audioRequests.contains(_audioKey(diary)) ||
-          _prefetchFailed.contains(_audioKey(diary))) {
-        continue;
-      }
-      _prefetchActive++;
-      unawaited(_prefetchAudio(diary));
-    }
-  }
-
-  Future<void> _prefetchAudio(Diary diary) async {
-    try {
-      await _ensureAudio(diary);
-    } catch (error, stack) {
-      _prefetchFailed.add(_audioKey(diary));
-      developer.log(
-        'audio_prefetch_failed request_id=${DateTime.now().microsecondsSinceEpoch} diary_id=${diary.id}',
-        name: 'diary.playback',
-        error: error,
-        stackTrace: stack,
-      );
-    } finally {
-      _prefetchActive--;
-      if (mounted && _randomMode) unawaited(_prefetchRandomPlan());
-    }
-  }
-
   void _onSyncError(Object error, StackTrace stack) {
     developer.log(
       '本地同步状态失败 request_id=${DateTime.now().microsecondsSinceEpoch}',
@@ -578,8 +547,13 @@ class _DiaryListPageState extends State<DiaryListPage>
         setState(() => _audioStatus = '');
       }
       _playingVoiceId = asset.voiceId;
-      final resume =
-          await _askPlaybackResume(diary.id, asset.voiceId, asset.durationMs);
+      if (fromRandomQueue && mounted && request == _playRequest) {
+        setState(() => _randomCurrent = diary);
+      }
+      // 随机播放不弹出历史恢复提示，避免队列等待用户操作。
+      final resume = fromRandomQueue
+          ? null
+          : await _askPlaybackResume(diary.id, asset.voiceId, asset.durationMs);
       if (!mounted ||
           request != _playRequest ||
           (fromRandomQueue && !_randomMode)) {
@@ -671,8 +645,6 @@ class _DiaryListPageState extends State<DiaryListPage>
     _randomToken++;
     _playRequest++;
     _randomPlanner.clear();
-    _randomFailures.clear();
-    _prefetchFailed.clear();
     if (mounted) {
       setState(() {
         _randomMode = false;
@@ -685,34 +657,38 @@ class _DiaryListPageState extends State<DiaryListPage>
   }
 
   Future<void> _playRandomCached() async {
-    final token = ++_randomToken;
-    _playRequest++;
-    final diaries = await _store.getDiaries();
-    if (!mounted || token != _randomToken) return;
-    final candidates = filterDiaries(diaries, _searchQuery, _selectedTag,
-        options: _searchOptions);
-    if (candidates.isEmpty) {
-      if (mounted) {
-        setState(() =>
-            _errorMessage = AppStrings.of(context).noRandomPlaybackCandidate);
+    if (_randomLoopRunning) return;
+    _randomLoopRunning = true;
+    try {
+      final token = ++_randomToken;
+      _playRequest++;
+      final diaries = await _store.getDiaries();
+      if (!mounted || token != _randomToken) return;
+      final candidates = filterDiaries(diaries, _searchQuery, _selectedTag,
+          options: _searchOptions);
+      if (candidates.isEmpty) {
+        if (mounted) {
+          setState(() =>
+              _errorMessage = AppStrings.of(context).noRandomPlaybackCandidate);
+        }
+        return;
       }
-      return;
+      await _playback.stop();
+      if (!mounted || token != _randomToken) return;
+      final usage = await _store.getRandomUsage();
+      if (!mounted || token != _randomToken) return;
+      _randomPlanner.reset(candidates, usage: usage);
+      if (mounted) {
+        setState(() {
+          _randomMode = true;
+          _randomCurrent = null;
+          _errorMessage = null;
+        });
+      }
+      await _playNextRandom();
+    } finally {
+      _randomLoopRunning = false;
     }
-    await _playback.stop();
-    if (!mounted || token != _randomToken) return;
-    final usage = await _store.getRandomUsage();
-    if (!mounted || token != _randomToken) return;
-    _randomPlanner.reset(candidates, usage: usage);
-    _randomFailures.clear();
-    _prefetchFailed.clear();
-    if (mounted) {
-      setState(() {
-        _randomMode = true;
-        _randomCurrent = null;
-        _errorMessage = null;
-      });
-    }
-    await _playNextRandom();
   }
 
   Future<void> _playNextRandom() async {
@@ -723,28 +699,14 @@ class _DiaryListPageState extends State<DiaryListPage>
         await _stopRandomPlayback();
         return;
       }
-      if (mounted) setState(() => _randomCurrent = diary);
       _randomPlanner.replenish();
-      unawaited(_prefetchRandomPlan());
       final completed = await _playDiary(diary, fromRandomQueue: true);
       if (!mounted || !_randomMode || token != _randomToken) return;
-      if (completed) {
-        _randomFailures.remove(diary.id);
-      } else {
-        final failures = (_randomFailures[diary.id] ?? 0) + 1;
-        if (failures < 3) {
-          _randomFailures[diary.id] = failures;
-          _randomPlanner.requeue(diary);
-        } else {
-          _randomFailures.remove(diary.id);
-          developer.log(
-            'random_item_deferred request_id=${DateTime.now().microsecondsSinceEpoch} diary_id=${diary.id}',
-            name: 'diary.playback',
-          );
-        }
+      if (!completed) {
+        await _stopRandomPlayback();
+        return;
       }
       _randomPlanner.replenish();
-      unawaited(_prefetchRandomPlan());
     }
   }
 
@@ -877,7 +839,6 @@ class _DiaryListPageState extends State<DiaryListPage>
                           setState(() {
                             _voiceId = selected;
                             _audioRequests.clear();
-                            _prefetchFailed.clear();
                           });
                         }
                       }

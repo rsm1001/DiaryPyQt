@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:diary_mobile/models/audio_asset.dart';
+import 'package:diary_mobile/models/audio_preparation_stage.dart';
 import 'package:diary_mobile/models/diary.dart';
 import 'package:diary_mobile/services/diary_api.dart';
 import 'package:diary_mobile/services/local_store.dart';
@@ -76,7 +77,7 @@ void main() {
   test('同篇切换语音分别生成，切回命中离线缓存且不改变查看统计', () async {
     await store.saveDiary(diary);
     final sync = SyncManager(api: api, store: store);
-    final statuses = <String>[];
+    final statuses = <AudioPreparationStage>[];
     final first =
         await sync.ensureAudio(diary, voiceId: 'one', onStatus: statuses.add);
     final second = await sync.ensureAudio(diary, voiceId: 'two');
@@ -87,7 +88,15 @@ void main() {
         first.localPath);
     expect(api.generated, ['one', 'two']);
     expect(
-        statuses, containsAllInOrder(['正在生成音频', '正在下载音频', '正在校验音频', '音频已缓存']));
+      statuses,
+      containsAllInOrder([
+        AudioPreparationStage.checkingCache,
+        AudioPreparationStage.generating,
+        AudioPreparationStage.downloading,
+        AudioPreparationStage.verifying,
+        AudioPreparationStage.cached,
+      ]),
+    );
     expect((await store.getDiary(diary.id))!.viewCount, 0);
     expect(await store.getOutbox(), isEmpty);
     expect(await store.getRandomUsage(), isEmpty);

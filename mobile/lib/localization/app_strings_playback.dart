@@ -1,3 +1,4 @@
+import '../models/audio_preparation_stage.dart';
 import 'app_strings.dart';
 
 extension AppStringsPlayback on AppStrings {
@@ -117,17 +118,26 @@ extension AppStringsPlayback on AppStrings {
       ? 'Playback made no progress. Check audio decoding or resync the audio.'
       : '\u97f3\u9891\u64ad\u653e\u65e0\u8fdb\u5ea6\uff0c\u8bf7\u68c0\u67e5\u8bbe\u5907\u97f3\u9891\u89e3\u7801\u6216\u91cd\u65b0\u540c\u6b65\u97f3\u9891';
   String get playbackFailed => english
-      ? 'Audio could not play. Skipping this diary and continuing playback.'
-      : '\u97f3\u9891\u65e0\u6cd5\u64ad\u653e\uff0c\u5c06\u8df3\u8fc7\u5f53\u524d\u65e5\u8bb0\u5e76\u7ee7\u7eed\u64ad\u653e';
+      ? 'Audio could not play. Random playback stopped.'
+      : '\u97f3\u9891\u65e0\u6cd5\u64ad\u653e\uff0c\u968f\u673a\u64ad\u653e\u5df2\u505c\u6b62';
   String get noRandomPlaybackCandidate => english
       ? 'No diaries match the current filters for random playback.'
       : '\u5f53\u524d\u7b5b\u9009\u6ca1\u6709\u53ef\u968f\u673a\u64ad\u653e\u7684\u65e5\u8bb0';
-  String audioCacheStatus(String status) => switch (status) {
-        '正在生成音频' => english ? 'Generating audio' : status,
-        '正在下载音频' => english ? 'Downloading audio' : status,
-        '正在校验音频' => english ? 'Verifying audio' : status,
-        '音频已缓存' => english ? 'Audio cached' : status,
-        '已从离线缓存读取音频' => english ? 'Loaded audio from offline cache' : status,
-        _ => status,
+  String audioCacheStatus(AudioPreparationStage stage) => switch (stage) {
+        AudioPreparationStage.checkingCache => english
+            ? 'Checking audio cache'
+            : '\u6b63\u5728\u68c0\u67e5\u8bed\u97f3\u7f13\u5b58',
+        AudioPreparationStage.loadedOfflineCache => english
+            ? 'Loaded audio from offline cache'
+            : '\u5df2\u4ece\u79bb\u7ebf\u7f13\u5b58\u8bfb\u53d6\u97f3\u9891',
+        AudioPreparationStage.generating =>
+          english ? 'Generating audio' : '\u6b63\u5728\u751f\u6210\u97f3\u9891',
+        AudioPreparationStage.downloading => english
+            ? 'Downloading audio'
+            : '\u6b63\u5728\u4e0b\u8f7d\u97f3\u9891',
+        AudioPreparationStage.verifying =>
+          english ? 'Verifying audio' : '\u6b63\u5728\u6821\u9a8c\u97f3\u9891',
+        AudioPreparationStage.cached =>
+          english ? 'Audio cached' : '\u97f3\u9891\u5df2\u7f13\u5b58',
       };
 }
